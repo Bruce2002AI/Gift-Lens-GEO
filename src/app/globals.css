@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  /* Warm, modern, premium palette */
+  --color-cream: #faf6f0;
+  --color-cream-deep: #f3ecdf;
+  --color-ink: #2a2724;
+  --color-ink-soft: #5c554c;
+  --color-plum: #713a8b;
+  --color-plum-dark: #55296b;
+  --color-plum-wash: #f3ecf7;
+  --color-gold: #a8821f;
+  --color-gold-wash: #f7f0dc;
+  --color-sand: #efe8dc;
+  --color-line: #e5dcce;
+  --color-ok: #2f7d4f;
+  --color-warn: #b45309;
+  --color-danger: #b3362b;
+
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-body: var(--font-inter), system-ui, sans-serif;
+
+  --shadow-card: 0 1px 2px rgb(42 39 36 / 0.05), 0 6px 24px -8px rgb(42 39 36 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(42 39 36 / 0.06), 0 16px 40px -12px rgb(42 39 36 / 0.18);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background-color: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible, high-contrast focus for keyboard users */
+:focus-visible {
+  outline: 2px solid var(--color-plum);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-white shadow-(--shadow-card);
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1.5 text-sm text-ink-soft transition-colors hover:border-plum hover:text-plum focus-visible:outline-2;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-plum px-5 py-2.5 font-medium text-white transition-colors hover:bg-plum-dark disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line bg-white px-5 py-2.5 font-medium text-ink transition-colors hover:border-plum hover:text-plum disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .field-label {
+    @apply mb-1 block text-xs font-medium tracking-wide text-ink-soft uppercase;
+  }
+  .field-input {
+    @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-soft/50 focus:border-plum focus:outline-none;
+  }
+}

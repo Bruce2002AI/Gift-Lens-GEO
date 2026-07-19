@@ -1,0 +1,266 @@
+import type { BaseIntent } from "@/lib/modes/types";
+import { detectCareFlags, hedgeInferredValue } from "./safety";
+import type {
+  AgentSession,
+  CareFlag,
+  ExpertLensId,
+  ExpertRequest,
+  LedgerFact,
+  LedgerView,
+  SessionLedger,
+} from "./types";
+
+/**
+ * Session Ledger mechanics: provenance-tagged facts, sticky care flags,
+ * quoted consents, and the BaseIntent adapter that lets the truth layer reuse
+ * checkHardConstraints unchanged.
+ */
+
+/** Fact ids are session-scoped: a module counter would recycle ids on restart. */
+function nextFactId(session: AgentSession): string {
+  session.factSeq += 1;
+  return `${session.id.slice(0, 8)}-f${session.factSeq}`;
+}
+
+export function newSession(id: string, lens: ExpertLensId): AgentSession {
+  return {
+    id,
+    lens,
+    turn: 0,
+    createdAtMs: Date.now(),
+    transcript: [],
+    ledger: {
+      facts: [],
+      constraints: {
+        budgetMaxMinor: null,
+        budgetMinMinor: null,
+        currency: "INR",
+        country: null,
+        deadline: null,
+        exclusions: [],
+      },
+      careFlags: [],
+      consents: [],
+      askedQuestions: [],
+      searchQueries: [],
+    },
+    evidence: new Map(),
+    candidates: new Map(),
+    searchHits: new Map(),
+    boardedIds: new Set(),
+    budgetScreenedCap: new Map(),
+    uploadedImage: null,
+    outfitRead: null,
+    sawMock: false,
+    mockAnnounced: false,
+    framedLenses: [],
+    questionCount: 0,
+    factSeq: 0,
+  };
+}
+
+/** Normalize for quote-in-transcript checks: lowercase, collapse whitespace, fold curly quotes. */
+export function normalizeForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * True when `quote` appears verbatim (normalized) in a USER message. `minTurn`
+ * restricts the search to messages from that turn onward — used so a revoked
+ * consent cannot be resurrected by replaying words spoken before the revocation.
+ */
+export function quoteInUserWords(
+  session: AgentSession,
+  quote: string,
+  minTurn = 0,
+): boolean {
+  const q = normalizeForMatch(quote);
+  if (q.length < 2) return false;
+  return session.transcript.some(
+    (t) => t.role === "user" && t.turn >= minTurn && normalizeForMatch(t.content).includes(q),
+  );
+}
+
+/**
+ * Apply model-authored fact patches. "said" facts require a verbatim user
+ * quote or they are downgraded to "inferred" (the model cannot launder a guess
+ * into testimony). Inferred values get the certainty-language hedge.
+ */
+export function applyFactPatches(
+  session: AgentSession,
+  patches: Array<{ key: string; value: string; provenance: "said" | "inferred" | "assumed"; quote?: string | null }>,
+): void {
+  for (const p of patches) {
+    let provenance = p.provenance;
+    let quote: string | null = p.quote ?? null;
+    if (provenance === "said") {
+      if (!quote || !quoteInUserWords(session, quote)) {
+        provenance = "inferred";
+        quote = null;
+      }
+    }
+    const value = provenance === "inferred" ? hedgeInferredValue(p.value) : p.value;
+    const existing = session.ledger.facts.find((f) => f.key === p.key && f.value === value);
+    if (existing) continue;
+    session.ledger.facts.push({
+      id: nextFactId(session),
+      key: p.key,
+      value,
+      provenance,
+      quote,
+      turn: session.turn,
+    });
+  }
+  // Ledger bloat guard.
+  if (session.ledger.facts.length > 60) {
+    session.ledger.facts = session.ledger.facts.slice(-60);
+  }
+}
+
+/**
+ * Consent is a recorded speech act: the quote must be a verbatim substring of
+ * a user message or the consent is rejected. Returns whether it was recorded.
+ */
+export function recordConsent(
+  session: AgentSession,
+  category: string,
+  quote: string,
+): boolean {
+  // After a revocation, only words spoken SINCE it can re-open the gate —
+  // otherwise replaying the original quote would resurrect revoked consent.
+  const lastRevokedTurn = session.ledger.consents
+    .filter((c) => c.category === category && c.revoked)
+    .reduce((max, c) => Math.max(max, c.turn), -1);
+  const minTurn = lastRevokedTurn >= 0 ? lastRevokedTurn + 1 : 0;
+  if (!quoteInUserWords(session, quote, minTurn)) return false;
+  const existing = session.ledger.consents.find(
+    (c) => c.category === category && !c.revoked,
+  );
+  if (existing) return true;
+  session.ledger.consents.push({
+    category,
+    quote,
+    turn: session.turn,
+    revoked: false,
+  });
+  return true;
+}
+
+export function hasConsent(ledger: SessionLedger, category: string): boolean {
+  return ledger.consents.some((c) => c.category === category && !c.revoked);
+}
+
+/** Union new care flags in (sticky, add-only — one entry per kind). */
+export function mergeCareFlags(session: AgentSession, flags: CareFlag[]): CareFlag[] {
+  const added: CareFlag[] = [];
+  for (const flag of flags) {
+    if (!session.ledger.careFlags.some((f) => f.kind === flag.kind)) {
+      session.ledger.careFlags.push(flag);
+      added.push(flag);
+    }
+  }
+  return added;
+}
+
+/** Run the deterministic net over a user message and union the results. */
+export function detectAndMergeCareFlags(session: AgentSession, text: string): CareFlag[] {
+  return mergeCareFlags(session, detectCareFlags(text, session.turn));
+}
+
+/** All denylist terms from active scope fences (fed into card + search checks). */
+export function scopeFenceTerms(ledger: SessionLedger): string[] {
+  return [...new Set(ledger.careFlags.flatMap((f) => f.scopeFence))];
+}
+
+/**
+ * Portrait-panel ops (corrections + consent revocation). "more_like" is handled
+ * in the loop, which has the product context it needs.
+ */
+export function applyOp(
+  session: AgentSession,
+  op: Exclude<NonNullable<ExpertRequest["op"]>, { kind: "more_like" }>,
+): string {
+  if (op.kind === "correct_fact") {
+    const idx = session.ledger.facts.findIndex((f) => f.id === op.factId);
+    if (idx === -1) return "The user tried to correct a fact that no longer exists.";
+    const fact = session.ledger.facts[idx];
+    if (op.remove) {
+      session.ledger.facts.splice(idx, 1);
+      return `The user REMOVED this from your understanding: "${fact.key}: ${fact.value}". Do not rely on it again; acknowledge the correction.`;
+    }
+    const newValue = (op.newValue ?? "").trim();
+    if (!newValue) return "Empty correction ignored.";
+    const corrected: LedgerFact = {
+      ...fact,
+      value: newValue,
+      provenance: "said",
+      quote: newValue,
+      turn: session.turn,
+    };
+    session.ledger.facts[idx] = corrected;
+    return `The user CORRECTED your understanding: "${fact.key}" is now "${newValue}" (was "${fact.value}"). Acknowledge the delta and adjust.`;
+  }
+  const consent = session.ledger.consents.find(
+    (c) => c.category === op.category && !c.revoked,
+  );
+  if (consent) {
+    consent.revoked = true;
+    // Stamp the revocation at the current turn so only later words can re-consent.
+    consent.turn = session.turn;
+  }
+  return `The user REVOKED consent for "${op.category}". Do not show that category again unless they re-opt-in in their own words.`;
+}
+
+export function ledgerView(ledger: SessionLedger): LedgerView {
+  return {
+    facts: ledger.facts,
+    constraints: ledger.constraints,
+    careFlags: ledger.careFlags.map((f) => ({ kind: f.kind, label: f.label })),
+    consents: ledger.consents.map((c) => ({
+      category: c.category,
+      quote: c.quote,
+      revoked: c.revoked,
+    })),
+  };
+}
+
+/**
+ * Adapter: the truth layer reuses checkHardConstraints/logisticsMessage
+ * unchanged by projecting the ledger onto BaseIntent. Scope-fence terms ride
+ * as exclusions so a care boundary constrains what can be SHOWN.
+ */
+export function ledgerToBaseIntent(ledger: SessionLedger): BaseIntent {
+  return {
+    budget: {
+      minMajor: null,
+      maxMajor: null,
+      minMinor: ledger.constraints.budgetMinMinor,
+      maxMinor: ledger.constraints.budgetMaxMinor,
+      currency: ledger.constraints.currency,
+    },
+    destination: {
+      country: ledger.constraints.country ?? "",
+      region: null,
+      city: null,
+      postalCode: null,
+    },
+    physicality: "either",
+    deadline: ledger.constraints.deadline,
+    hardConstraints: [],
+    exclusions: [...ledger.constraints.exclusions, ...scopeFenceTerms(ledger)],
+    softPreferences: [],
+    searchThemes: [],
+    interests: [],
+    occasion: null,
+    styleKeywords: [],
+    clarificationNeeded: false,
+    clarificationQuestion: null,
+  };
+}
