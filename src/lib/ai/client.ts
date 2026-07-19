@@ -17,9 +17,10 @@ import { logger } from "@/lib/logger";
  * callers pass catalog evidence in and validate what comes out.
  */
 
-export type AiProvider = "ollama" | "anthropic" | "none";
+export type AiProvider = "gemini" | "ollama" | "anthropic" | "none";
 
 export function aiProvider(): AiProvider {
+  if (env.geminiApiKeys.length > 0) return "gemini";
   if (env.ollamaApiKey) return "ollama";
   if (env.anthropicApiKey) return "anthropic";
   return "none";
@@ -76,23 +77,130 @@ export interface StructuredOptions {
 
 /** True when a multimodal model is configured — gates every image affordance. */
 export function visionAvailable(): boolean {
-  return aiProvider() === "ollama"
-    ? Boolean(env.ollamaVisionModel)
-    : aiProvider() === "anthropic";
+  const p = aiProvider();
+  if (p === "gemini") return true; // Gemini models are natively multimodal.
+  if (p === "ollama") return Boolean(env.ollamaVisionModel);
+  return p === "anthropic";
 }
 
 export function visionModel(): string | null {
-  if (aiProvider() === "ollama") return env.ollamaVisionModel;
-  if (aiProvider() === "anthropic") return env.anthropicModel;
+  const p = aiProvider();
+  if (p === "gemini") return env.geminiVisionModel;
+  if (p === "ollama") return env.ollamaVisionModel;
+  if (p === "anthropic") return env.anthropicModel;
   return null;
 }
 
-/**
- * A creative model to use for the opening counsel only (warmer, better-
- * structured prose). Ollama-only; null when unset so callers use the default.
- */
-export function creativeModelName(): string | null {
-  return aiProvider() === "ollama" ? env.ollamaCreativeModel : null;
+/** HTTP statuses that mean "this key is spent — try another", not "the request is bad". */
+function isKeyRotationStatus(status: number): boolean {
+  return status === 429 || status === 401 || status === 403;
+}
+
+// ── Gemini (generateContent, JSON output mode, natively multimodal) ──────────
+
+/** Sticky key index for the Gemini pool (same rotation discipline as Ollama). */
+let geminiKeyIndex = 0;
+
+/** Permissive safety thresholds: our content is benign educational/shopping
+ *  guidance, and default filters occasionally false-block skin/body topics. */
+const GEMINI_SAFETY = [
+  "HARM_CATEGORY_HARASSMENT",
+  "HARM_CATEGORY_HATE_SPEECH",
+  "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+  "HARM_CATEGORY_DANGEROUS_CONTENT",
+].map((category) => ({ category, threshold: "BLOCK_ONLY_HIGH" }));
+
+async function geminiFetchOnce(
+  key: string,
+  model: string,
+  system: string,
+  prompt: string,
+  opts: StructuredOptions,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 45_000);
+  const parts: unknown[] = [{ text: prompt }];
+  if (opts.image) {
+    parts.push({ inline_data: { mime_type: opts.image.mediaType, data: opts.image.base64 } });
+  }
+  const body = {
+    system_instruction: {
+      parts: [
+        {
+          text: `${system}\n\nRespond with ONLY a single valid JSON value matching the requested shape. No prose, no markdown fences.`,
+        },
+      ],
+    },
+    contents: [{ role: "user", parts }],
+    safetySettings: GEMINI_SAFETY,
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: opts.temperature ?? 0.2,
+      maxOutputTokens: opts.maxTokens ?? 2000,
+      // Disable "thinking" so we get the answer directly and fast (and so JSON
+      // isn't preceded by a reasoning preamble that breaks parsing).
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  };
+  try {
+    return await fetch(`${env.geminiBaseUrl}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function geminiCall(
+  system: string,
+  prompt: string,
+  opts: StructuredOptions,
+): Promise<string> {
+  const keys = env.geminiApiKeys;
+  if (keys.length === 0) throw new AiConfigError("No Gemini API key is configured on the server.");
+  const model = opts.model ?? env.geminiModel;
+
+  let lastRotationErr: Error | null = null;
+  for (let tries = 0; tries < keys.length; tries += 1) {
+    const idx = geminiKeyIndex % keys.length;
+    const res = await geminiFetchOnce(keys[idx], model, system, prompt, opts);
+
+    if (isKeyRotationStatus(res.status)) {
+      const body = await res.text().catch(() => "");
+      lastRotationErr = new AiOutputError(
+        `Gemini key #${idx} got HTTP ${res.status}${body ? `: ${body.slice(0, 120)}` : ""}`,
+      );
+      logger.warn("gemini key rotating", { status: res.status, fromIndex: idx, poolSize: keys.length });
+      geminiKeyIndex = (geminiKeyIndex + 1) % keys.length;
+      continue;
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new AiOutputError(`Gemini returned HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+    }
+    const json = (await res.json()) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+        finishReason?: string;
+      }>;
+      promptFeedback?: { blockReason?: string };
+    };
+    const cand = json.candidates?.[0];
+    const text = (cand?.content?.parts ?? [])
+      .map((p) => p.text)
+      .filter((t): t is string => Boolean(t))
+      .join("");
+    if (!text) {
+      const reason = cand?.finishReason ?? json.promptFeedback?.blockReason ?? "no content";
+      throw new AiOutputError(`Gemini returned no text content (${reason})`);
+    }
+    return text;
+  }
+  throw lastRotationErr ?? new AiOutputError("All Gemini API keys are rate-limited or unavailable.");
 }
 
 // ── Ollama (native chat API, JSON output mode) ───────────────────────────────
@@ -103,11 +211,6 @@ export function creativeModelName(): string | null {
  * — so we don't re-hit an exhausted key at the top of every request.
  */
 let ollamaKeyIndex = 0;
-
-/** HTTP statuses that mean "this key is spent — try another", not "the request is bad". */
-function isKeyRotationStatus(status: number): boolean {
-  return status === 429 || status === 401 || status === 403;
-}
 
 /** One /api/chat POST with an explicit key. Rotation is handled by the caller. */
 async function ollamaFetchOnce(
@@ -253,6 +356,8 @@ function callModel(
   opts: StructuredOptions,
 ): Promise<string> {
   switch (aiProvider()) {
+    case "gemini":
+      return geminiCall(system, prompt, opts);
     case "ollama":
       return ollamaCall(system, prompt, opts);
     case "anthropic":

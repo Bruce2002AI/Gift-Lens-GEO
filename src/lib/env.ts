@@ -15,7 +15,32 @@ function readString(name: string): string | null {
 }
 
 export const env = {
-  // Ollama Cloud is the primary AI provider.
+  // Google Gemini is the primary AI provider (creative + reliable structured
+  // output + natively multimodal). Falls back to Ollama, then Anthropic.
+  get geminiApiKeys(): string[] {
+    const fromList = (readString("GEMINI_API_KEYS") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const primary = readString("GEMINI_API_KEY");
+    const all = [...fromList];
+    if (primary && !all.includes(primary)) all.push(primary);
+    return [...new Set(all)];
+  },
+  get geminiModel(): string {
+    return readString("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
+  },
+  /** Gemini is multimodal, so image analysis uses the same model unless overridden. */
+  get geminiVisionModel(): string {
+    return readString("GEMINI_VISION_MODEL") ?? env.geminiModel;
+  },
+  get geminiBaseUrl(): string {
+    return (readString("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com/v1beta").replace(
+      /\/+$/,
+      "",
+    );
+  },
+  // Ollama Cloud (secondary provider, used only when no Gemini key is set).
   get ollamaApiKey(): string | null {
     return readString("OLLAMA_API_KEY") ?? env.ollamaApiKeys[0] ?? null;
   },
@@ -36,16 +61,6 @@ export const env = {
   },
   get ollamaModel(): string {
     return readString("OLLAMA_MODEL") ?? "gpt-oss:120b";
-  },
-  /**
-   * Optional creative model used ONLY for the opening counsel (a simple say),
-   * where warmer, better-structured prose matters most. The reliable default
-   * model still handles every structured action (search/inspect/present),
-   * because creative models fail the strict JSON envelope. Empty → the default
-   * model writes the opener too.
-   */
-  get ollamaCreativeModel(): string | null {
-    return readString("OLLAMA_CREATIVE_MODEL");
   },
   /**
    * Multimodal model used for image understanding (outfit reads, product-image
@@ -105,11 +120,11 @@ export interface EnvIssue {
 /** Validate environment for the requested capability; returns actionable issues. */
 export function validateEnv(): EnvIssue[] {
   const issues: EnvIssue[] = [];
-  if (!env.ollamaApiKey && !env.anthropicApiKey) {
+  if (env.geminiApiKeys.length === 0 && !env.ollamaApiKey && !env.anthropicApiKey) {
     issues.push({
-      key: "OLLAMA_API_KEY",
+      key: "GEMINI_API_KEY",
       message:
-        "No AI provider is configured. Gift understanding falls back to the labeled deterministic heuristic; set OLLAMA_API_KEY (or ANTHROPIC_API_KEY) for LLM-powered intent extraction and explanations.",
+        "No AI provider is configured. Gift understanding falls back to the labeled deterministic heuristic; set GEMINI_API_KEY (or OLLAMA_API_KEY / ANTHROPIC_API_KEY) for LLM-powered intent extraction and explanations.",
       severity: "warning",
     });
   }

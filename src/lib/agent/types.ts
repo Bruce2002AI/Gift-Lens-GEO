@@ -138,28 +138,21 @@ export interface AgentSession {
 // loop validates per-action semantic requirements in code.
 // ---------------------------------------------------------------------------
 
-// A creative model sometimes omits a fork field; ".catch" keeps the object
-// parseable (the loop drops any fork whose branches aren't both filled).
 export const ForkSchema = z.object({
-  ifA: z.string().catch(""),
-  thenA: z.string().catch(""),
-  ifB: z.string().catch(""),
-  thenB: z.string().catch(""),
+  ifA: z.string(),
+  thenA: z.string(),
+  ifB: z.string(),
+  thenB: z.string(),
 });
 export type Fork = z.infer<typeof ForkSchema>;
 
-// The model occasionally writes a query as a bare string instead of {query}.
-// Coerce it so a good search isn't lost to a shape nit.
-export const SearchSpecSchema = z.preprocess(
-  (v) => (typeof v === "string" ? { query: v } : v),
-  z.object({
-    query: z.string(),
-    maxPriceMinor: z.number().nullish(),
-    likeProductId: z.string().nullish(),
-    /** Catalog visual similarity against the user's uploaded image (agent hasn't seen it). */
-    useUploadedImage: z.boolean().nullish(),
-  }),
-);
+export const SearchSpecSchema = z.object({
+  query: z.string(),
+  maxPriceMinor: z.number().nullish(),
+  likeProductId: z.string().nullish(),
+  /** Catalog visual similarity against the user's uploaded image (agent hasn't seen it). */
+  useUploadedImage: z.boolean().nullish(),
+});
 export type SearchSpec = z.infer<typeof SearchSpecSchema>;
 
 export const FactPatchSchema = z.object({
@@ -240,20 +233,17 @@ export const CompositionSchema = z.object({
 
 /** A narrowing question shown UNDER the products — show-and-ask in one turn. */
 export const FollowUpSchema = z.object({
-  text: z.string().catch(""),
+  text: z.string(),
   fork: ForkSchema.nullish(),
   quickReplies: z.array(z.string()).nullish(),
 });
 export type FollowUp = z.infer<typeof FollowUpSchema>;
 
-// The scaffolding fields (message/layout/sections) are defaulted with ".catch"
-// so a present that carries the real payload — the board — still parses when a
-// creative model omits or malforms the wrapper. The board is what matters.
 export const PresentationSchema = z.object({
-  message: z.string().catch(""),
-  layout: z.enum(["picks", "plan", "single", "comparison"]).catch("picks"),
+  message: z.string(),
+  layout: z.enum(["picks", "plan", "single", "comparison"]),
   assumptions: z.array(z.string()).nullish(),
-  sections: z.array(PresentSectionSchema).catch([]),
+  sections: z.array(PresentSectionSchema),
   /** "What I left out on purpose" — items considered and rejected, with reasons. */
   leftOut: z.array(z.object({ item: z.string(), reason: z.string() })).nullish(),
   /** One narrowing question to refine the picks — the agent keeps shopping while it asks. */
@@ -276,7 +266,7 @@ export const ACTION_KINDS = [
   "note_limitation",
 ] as const;
 
-export const ActionSchema = z.object({
+const ActionObjectSchema = z.object({
   action: z.enum(ACTION_KINDS),
   /** say / ask_user / note_limitation text. */
   text: z.string().nullish(),
@@ -300,7 +290,30 @@ export const ActionSchema = z.object({
   /** present. */
   presentation: PresentationSchema.nullish(),
 });
-export type AgentAction = z.infer<typeof ActionSchema>;
+
+/**
+ * Some models (notably small/fast ones) drop the "action" discriminator and
+ * return just the payload — e.g. `{"presentation": {...}}` with no action.
+ * Infer the missing action from the shape so a perfectly good present/search
+ * isn't lost to a missing field. Most specific fields win.
+ */
+function inferAction(v: unknown): unknown {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+  const o = v as Record<string, unknown>;
+  if (typeof o.action === "string" && (ACTION_KINDS as readonly string[]).includes(o.action)) return v;
+  if (o.presentation != null) o.action = "present";
+  else if (o.queries != null) o.action = "search_catalog";
+  else if (o.productIds != null || o.productId != null) o.action = "get_product";
+  else if (o.summary != null && o.sections != null) o.action = "propose_direction";
+  else if (o.facts != null || o.constraints != null || o.consent != null || o.careFlagAdd != null)
+    o.action = "update_ledger";
+  else if (o.fork != null || o.quickReplies != null) o.action = "ask_user";
+  else if (typeof o.text === "string") o.action = "say";
+  return v;
+}
+
+export const ActionSchema = z.preprocess(inferAction, ActionObjectSchema);
+export type AgentAction = z.infer<typeof ActionObjectSchema>;
 
 // ---------------------------------------------------------------------------
 // Verified (server-notarized) presentation — what the UI actually receives

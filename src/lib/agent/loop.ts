@@ -1,5 +1,5 @@
 import "server-only";
-import { aiAvailable, creativeModelName, structuredCompletion, visionAvailable } from "@/lib/ai/client";
+import { aiAvailable, structuredCompletion, visionAvailable } from "@/lib/ai/client";
 import { TraceCollector } from "@/lib/catalog/trace";
 import { isValidCurrencyCode, majorToMinor } from "@/lib/gift/currency";
 import { logger } from "@/lib/logger";
@@ -119,10 +119,22 @@ function applyConstraintPatch(
  * the model skims past.
  */
 const FORMULAIC_OPENER =
-  /^\s*(?:[*_#>\s-]*)?(i hear|i understand (?:you|that|your)|the biggest lever|great choice|got it|i'?m glad you|i'?m happy to|sounds like you|i can (?:hear|see) (?:you|that|how)|absolutely|of course|thanks for (?:sharing|reaching))(?![a-z])/i;
+  /^\s*(?:[*_#>\s-]*)?(i hear (?:you|that)|i understand (?:you|that|your)|the biggest lever|great choice|got it|i'?m glad you|i'?m happy to|sounds like you|i can (?:hear|see) (?:you|that|how)|absolutely|of course|thanks for (?:sharing|reaching))(?![a-z])/i;
 
 function looksFormulaicOpener(text: string): boolean {
   return FORMULAIC_OPENER.test(text);
+}
+
+/** Markdown structure markers: a bullet/numbered line, a blockquote, or bold. */
+const HAS_STRUCTURE = /\n\s*[-*+]\s|\n\s*\d+[.)]\s|\n\s*>|\*\*/;
+
+/**
+ * A long piece of counsel dumped as one grey paragraph reads worse than the
+ * same advice as a scannable list. If a substantial say has no structure at
+ * all, push once for a reformat (short replies are left as prose).
+ */
+function looksUnstructured(text: string): boolean {
+  return text.length >= 320 && !HAS_STRUCTURE.test(text);
 }
 
 /** Cheap token-set similarity to catch the model re-saying the same thing. */
@@ -461,13 +473,9 @@ export async function runExpertTurn(
   let compositionNudges = 0;
   let emptyPresentNudges = 0;
   let voiceNudges = 0;
+  let structureNudges = 0;
   let narrateNudges = 0;
   let saidThisTurn = false;
-  // The opening counsel uses a warmer, better-structured creative model; every
-  // structured action uses the reliable default. If the creative opener ever
-  // fails, we stop trying it this turn and fall back to the default model.
-  const creativeModel = creativeModelName();
-  let creativeFailed = false;
 
   while (actionsUsed < MAX_ACTIONS && terminal === null) {
     if (aborted?.()) return;
@@ -482,8 +490,6 @@ export async function runExpertTurn(
       return;
     }
 
-    // Only the very first action (the opener counsel) rides the creative model.
-    const useCreative = actionsUsed === 0 && !saidThisTurn && !!creativeModel && !creativeFailed;
     let action: AgentAction;
     try {
       action = await structuredCompletion(
@@ -500,25 +506,15 @@ export async function runExpertTurn(
         // Generous ceiling: a full board (4-5 items across several categories)
         // plus featured cards and compositions is a large payload. A touch of
         // temperature keeps the prose from reading rote.
-        { maxTokens: 8000, temperature: 0.6, timeoutMs: 90_000, ...(useCreative ? { model: creativeModel } : {}) },
+        { maxTokens: 8000, temperature: 0.6, timeoutMs: 90_000 },
       );
     } catch (err) {
       modelFailures += 1;
-      // A creative-opener failure is expected occasionally — don't count it
-      // against the turn; just fall back to the reliable model and retry.
-      if (useCreative) {
-        creativeFailed = true;
-        modelFailures -= 1;
-        logger.warn("creative opener failed, falling back to default model", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        continue;
-      }
       logger.warn("expert loop model call failed", {
         error: err instanceof Error ? err.message : String(err),
         failures: modelFailures,
       });
-      if (modelFailures >= 3) {
+      if (modelFailures >= 2) {
         emit({
           type: "notice",
           tone: "degraded",
@@ -560,6 +556,15 @@ export async function runExpertTurn(
           voiceNudges += 1;
           observations.push(
             `SYSTEM: your line opened with a banned stock phrase ("I hear you're…", "The biggest lever…", "Got it", "Great choice", "Absolutely"). Rewrite it in a fresh, human voice — dive straight into the substance, warm and specific, the way a sharp friend would actually talk. No stock acknowledgement, no "the biggest lever is".`,
+          );
+          break;
+        }
+        // Structure guard: a long paragraph of counsel must be reformatted into
+        // scannable Markdown (the shopper explicitly wants list-style answers).
+        if (structureNudges < 2 && looksUnstructured(text)) {
+          structureNudges += 1;
+          observations.push(
+            `SYSTEM: that's a lot of good advice crammed into one grey paragraph — reformat it as SCANNABLE Markdown before you send, SAME content: a short **bold** takeaway line, then a "**Do this:**"-style lead-in and a numbered list (or bullets) where each point starts with a **bold** phrase, indented "  - " sub-bullets for options, and a "> " blockquote for anything they'd actually say or read. Keep it warm; just make it a joy to scan, like a great expert's notes.`,
           );
           break;
         }

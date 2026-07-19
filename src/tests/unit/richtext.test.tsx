@@ -49,12 +49,10 @@ describe("RichText — the chat markdown renderer", () => {
     );
     const topList = container.querySelector("ol");
     expect(topList).not.toBeNull();
-    // The first <li> should itself contain a nested <ul> with the two options.
     const firstLi = topList!.querySelector("li");
     const nested = firstLi!.querySelector("ul");
     expect(nested).not.toBeNull();
     expect(nested!.querySelectorAll("li")).toHaveLength(2);
-    // The top-level ordered list still has both numbered items.
     expect(topList!.querySelectorAll(":scope > li")).toHaveLength(2);
   });
 
