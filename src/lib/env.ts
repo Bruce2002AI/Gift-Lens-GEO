@@ -109,6 +109,64 @@ export const env = {
   get appUrl(): string {
     return readString("NEXT_PUBLIC_APP_URL") ?? "http://localhost:3000";
   },
+
+  // ── Authentication (server-only) ─────────────────────────────────
+  /** NextAuth JWT signing secret; also keys the OTP HMAC. Auth is disabled without it. */
+  get authSecret(): string | null {
+    return readString("AUTH_SECRET");
+  },
+  /** Google OAuth client id (from Google Cloud console). */
+  get googleClientId(): string | null {
+    return readString("AUTH_GOOGLE_ID");
+  },
+  /** Google OAuth client secret. */
+  get googleClientSecret(): string | null {
+    return readString("AUTH_GOOGLE_SECRET");
+  },
+  get mongoUri(): string | null {
+    return readString("MONGODB_URI");
+  },
+  get mongoDbName(): string {
+    return readString("MONGODB_DB") ?? "shoplens";
+  },
+  /** OTP lifetime in seconds (default 5 minutes). */
+  get otpTtlSeconds(): number {
+    const raw = Number(readString("OTP_TTL_SECONDS"));
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 300;
+  },
+  /** OTP code length in digits (default 6, clamped 4–10). */
+  get otpLength(): number {
+    const raw = Number(readString("OTP_LENGTH"));
+    if (!Number.isFinite(raw)) return 6;
+    return Math.min(10, Math.max(4, Math.floor(raw)));
+  },
+  /** Session lifetime in days (default 7). */
+  get sessionMaxAgeDays(): number {
+    const raw = Number(readString("SESSION_MAX_AGE_DAYS"));
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 7;
+  },
+  /** True when the auth core (secret + database) is configured. */
+  get authConfigured(): boolean {
+    return Boolean(env.authSecret && env.mongoUri);
+  },
+
+  // ── Email delivery (server-only) ─────────────────────────────────
+  /** Postmark server token (Server API token). Empty → OTP falls back to the console stub. */
+  get postmarkServerToken(): string | null {
+    return readString("POSTMARK_SERVER_TOKEN");
+  },
+  /** Verified Postmark sender, e.g. `ShopLens <login@yourdomain.com>` (or a bare address). */
+  get emailFrom(): string | null {
+    return readString("EMAIL_FROM");
+  },
+  /** Postmark message stream id; transactional mail uses "outbound". */
+  get postmarkMessageStream(): string {
+    return readString("POSTMARK_MESSAGE_STREAM") ?? "outbound";
+  },
+  /** True when real email delivery (Postmark) is configured. */
+  get emailConfigured(): boolean {
+    return Boolean(env.postmarkServerToken && env.emailFrom);
+  },
 } as const;
 
 export interface EnvIssue {
@@ -145,6 +203,36 @@ export function validateEnv(): EnvIssue[] {
       message:
         "Both SHOPIFY_CATALOG_CLIENT_ID and SHOPIFY_CATALOG_CLIENT_SECRET must be set together for authenticated Catalog mode.",
       severity: "error",
+    });
+  }
+  if (!env.authSecret || !env.mongoUri) {
+    issues.push({
+      key: "AUTH_SECRET",
+      message:
+        "Authentication is disabled: set AUTH_SECRET and MONGODB_URI to enable email-OTP and Google sign-in.",
+      severity: "warning",
+    });
+  }
+  if (
+    (env.googleClientId && !env.googleClientSecret) ||
+    (!env.googleClientId && env.googleClientSecret)
+  ) {
+    issues.push({
+      key: "AUTH_GOOGLE_ID",
+      message:
+        "Both AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET must be set together to enable Google sign-in.",
+      severity: "error",
+    });
+  }
+  if (
+    (env.postmarkServerToken && !env.emailFrom) ||
+    (!env.postmarkServerToken && env.emailFrom)
+  ) {
+    issues.push({
+      key: "POSTMARK_SERVER_TOKEN",
+      message:
+        "Both POSTMARK_SERVER_TOKEN and EMAIL_FROM must be set together to send real OTP emails via Postmark; otherwise the code is logged to the server console.",
+      severity: "warning",
     });
   }
   return issues;

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
 import { NavBar } from "@/components/layout/NavBar";
 import { Footer } from "@/components/layout/Footer";
+import { Providers } from "@/components/auth/Providers";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -34,11 +35,13 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        <NavBar />
-        <main id="main" className="min-h-[calc(100vh-8rem)]">
-          {children}
-        </main>
-        <Footer />
+        <Providers>
+          <NavBar />
+          <main id="main" className="min-h-[calc(100vh-8rem)]">
+            {children}
+          </main>
+          <Footer />
+        </Providers>
       </body>
     </html>
   );
