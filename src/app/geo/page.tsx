@@ -283,8 +283,9 @@ export default function GeoPage() {
             </div>
           </section>
 
-          {/* Dimensions */}
-          <section aria-label="Score dimensions" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {/* Dimensions — at-a-glance chart, then expandable detail */}
+          <DimensionChart dimensions={result.dimensions} />
+          <section aria-label="Score dimension detail" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {result.dimensions.map((dim) => (
               <DimensionCard key={dim.key} dim={dim} />
             ))}
@@ -437,6 +438,60 @@ export default function GeoPage() {
   );
 }
 
+/** Map a 0–100 percentage to a point on the sequential score ramp. */
+function scoreRampColor(pct: number): string {
+  if (pct >= 75) return "var(--color-score-strong)";
+  if (pct >= 55) return "var(--color-score-good)";
+  if (pct >= 40) return "var(--color-score-fair)";
+  return "var(--color-score-poor)";
+}
+
+/**
+ * A consolidated, point-weighted read of all six dimensions in one frame —
+ * the "briefing" view. Each bar is scaled to its own max, coloured by the
+ * sequential ramp, and marked at the 50% line so partial credit is legible
+ * at a glance (rather than six separate boxes).
+ */
+function DimensionChart({ dimensions }: { dimensions: DimensionScore[] }) {
+  return (
+    <section className="card p-5" aria-label="Score breakdown at a glance">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-(family-name:--font-display) text-lg font-semibold">
+          Score breakdown
+        </h2>
+        <p className="text-xs text-ink-soft">Each bar is scaled to its own point budget</p>
+      </div>
+      <ul className="mt-4 space-y-3.5">
+        {dimensions.map((dim) => {
+          const pct = dim.max > 0 ? Math.round((dim.score / dim.max) * 100) : 0;
+          return (
+            <li key={dim.key}>
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="font-medium text-ink">{dim.label}</span>
+                <span className="shrink-0 text-xs tabular-nums text-ink-soft">
+                  {dim.score} / {dim.max}
+                </span>
+              </div>
+              <div className="relative mt-1.5 h-2.5 overflow-hidden rounded-full bg-score-track">
+                {/* 50% reference line */}
+                <span
+                  aria-hidden
+                  className="absolute inset-y-0 left-1/2 w-px bg-line"
+                  style={{ mixBlendMode: "multiply" }}
+                />
+                <div
+                  className="h-full rounded-full transition-[width] duration-700 motion-reduce:transition-none"
+                  style={{ width: `${pct}%`, backgroundColor: scoreRampColor(pct) }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function ScoreRing({ score }: { score: number }) {
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
@@ -485,10 +540,11 @@ function DimensionCard({ dim }: { dim: DimensionScore }) {
         </div>
         <ChevronDown size={15} aria-hidden className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden>
+      <div className="relative mt-2 h-2 overflow-hidden rounded-full bg-score-track" aria-hidden>
+        <span className="absolute inset-y-0 left-1/2 w-px bg-line" style={{ mixBlendMode: "multiply" }} />
         <div
-          className={`h-full rounded-full ${pct >= 70 ? "bg-ok" : pct >= 45 ? "bg-warn" : "bg-danger"}`}
-          style={{ width: `${pct}%` }}
+          className="h-full rounded-full"
+          style={{ width: `${pct}%`, backgroundColor: scoreRampColor(pct) }}
         />
       </div>
       <p className="mt-2 text-xs leading-relaxed text-ink-soft">{dim.summary}</p>

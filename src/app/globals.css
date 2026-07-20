@@ -17,6 +17,14 @@
   --color-warn: #b45309;
   --color-danger: #b3362b;
 
+  /* Sequential ramp for score/quality bars (low → high). Distinct from the
+     semantic ok/warn/danger lane so charts read as data, not alarms. */
+  --color-score-poor: #c2453a;
+  --color-score-fair: #c1852a;
+  --color-score-good: #8a9a3f;
+  --color-score-strong: #2f7d4f;
+  --color-score-track: #ece3d3;
+
   --font-display: var(--font-fraunces), Georgia, serif;
   --font-body: var(--font-inter), system-ui, sans-serif;
 
@@ -48,15 +56,25 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Scroll stays; the scrollbar chrome is hidden everywhere for a cleaner UI. */
+/* Thin, subtle scrollbars: quiet enough to stay clean, present enough that
+   scrollable regions (e.g. the prompt-visibility table) announce themselves. */
 * {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* legacy Edge */
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--color-line) transparent;
 }
 *::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none; /* Chrome / Safari */
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-soft);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* Visible, high-contrast focus for keyboard users */
@@ -85,4 +103,33 @@ body {
   .field-input {
     @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-soft/50 focus:border-plum focus:outline-none;
   }
+  /* Shimmering placeholder for content the agent is still fetching. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-sand;
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 0.6),
+      transparent
+    );
+    animation: shimmer 1.5s infinite;
+  }
+}
+
+/* Agent activity: three dots that pulse in sequence while the expert works. */
+@keyframes dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
 }
