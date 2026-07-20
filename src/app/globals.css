@@ -103,4 +103,33 @@ body {
   .field-input {
     @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-soft/50 focus:border-plum focus:outline-none;
   }
+  /* Shimmering placeholder for content the agent is still fetching. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-sand;
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 0.6),
+      transparent
+    );
+    animation: shimmer 1.5s infinite;
+  }
+}
+
+/* Agent activity: three dots that pulse in sequence while the expert works. */
+@keyframes dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
 }

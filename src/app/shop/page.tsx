@@ -732,10 +732,10 @@ export default function ExpertShopPage() {
               )}
 
               {streaming && (
-                <div className="flex items-center gap-2 pl-1 text-sm text-ink-soft" role="status">
-                  <Loader2 size={14} className="animate-spin" aria-hidden />
-                  <span>thinking…</span>
-                </div>
+                <WorkingIndicator
+                  lensName={lens ? MODE_META[lens].name : null}
+                  accentClass={accentClass}
+                />
               )}
               <div ref={endRef} />
             </div>
@@ -795,14 +795,16 @@ export default function ExpertShopPage() {
           />
 
           {board.length === 0 ? (
-            <div className="card flex items-center gap-3 p-6 text-sm text-ink-soft">
-              {streaming && <Loader2 size={16} className="animate-spin text-plum" aria-hidden />}
-              <p>
-                {streaming
-                  ? "Searching the catalog — products will appear here as the expert verifies them."
-                  : "Everything the expert finds lands here — grouped by category, with why each one made the list."}
-              </p>
-            </div>
+            streaming ? (
+              <SkeletonBoard />
+            ) : (
+              <div className="card flex items-center gap-3 p-6 text-sm text-ink-soft">
+                <p>
+                  Everything the expert finds lands here — grouped by category,
+                  with why each one made the list.
+                </p>
+              </div>
+            )
           ) : (
             <ProductBoard
               board={board}
@@ -814,6 +816,70 @@ export default function ExpertShopPage() {
             />
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The "expert is working" indicator — three dots that pulse in sequence,
+ * lens-aware, styled to match the agent's own message bubbles so the wait
+ * reads as active work rather than a stalled spinner.
+ */
+function WorkingIndicator({
+  lensName,
+  accentClass,
+}: {
+  lensName: string | null;
+  accentClass: string;
+}) {
+  return (
+    <div className="pl-1" role="status" aria-live="polite">
+      <div
+        className={`inline-flex items-center gap-2.5 rounded-2xl border-l-2 bg-sand px-4 py-2.5 ${accentClass}`}
+      >
+        <span className="flex items-end gap-1" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 rounded-full bg-plum"
+              style={{ animation: "dot 1s ease-in-out infinite", animationDelay: `${i * 160}ms` }}
+            />
+          ))}
+        </span>
+        <span className="text-sm text-ink-soft">
+          {lensName
+            ? `${lensName} is searching & verifying…`
+            : "Searching & verifying live products…"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder product grid shown while the first verified picks are loading. */
+function SkeletonBoard() {
+  return (
+    <div>
+      <p className="mb-3 flex items-center gap-2 text-sm text-ink-soft" role="status">
+        <Loader2 size={14} className="animate-spin text-plum" aria-hidden />
+        Searching the catalog — verified products appear here as they&apos;re confirmed.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="card overflow-hidden">
+            <div className="skeleton h-44 w-full rounded-none" />
+            <div className="space-y-2.5 p-4">
+              <div className="skeleton h-3 w-1/3" />
+              <div className="skeleton h-4 w-4/5" />
+              <div className="skeleton h-3 w-1/2" />
+              <div className="mt-3 flex gap-2">
+                <div className="skeleton h-8 flex-1 rounded-full" />
+                <div className="skeleton h-8 flex-1 rounded-full" />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
