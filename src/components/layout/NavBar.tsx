@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShoppingBag, Sparkles } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Heart, ShoppingBag, ShoppingCart, Sparkles } from "lucide-react";
+import { UserMenu } from "@/components/auth/UserMenu";
+import { useWishlist } from "@/components/wishlist/WishlistProvider";
+import { useShortlist } from "@/components/shortlist/ShortlistProvider";
 
 const LINKS = [
   { href: "/shop", label: "Shop" },
@@ -12,6 +16,9 @@ const LINKS = [
 
 export function NavBar() {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
+  const { count } = useWishlist();
+  const { count: shortlistCount, openDrawer } = useShortlist();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-cream/90 backdrop-blur">
       <nav
@@ -49,6 +56,50 @@ export function NavBar() {
             <Sparkles size={14} aria-hidden />
             Start shopping
           </Link>
+
+          <button
+            type="button"
+            onClick={openDrawer}
+            aria-label={`Shortlist${shortlistCount > 0 ? ` (${shortlistCount} items)` : ""}`}
+            className="relative ml-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
+          >
+            <ShoppingCart size={18} aria-hidden />
+            {shortlistCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-plum px-1 text-[10px] font-semibold text-white">
+                {shortlistCount > 99 ? "99+" : shortlistCount}
+              </span>
+            )}
+          </button>
+
+          {status === "authenticated" ? (
+            <>
+              <Link
+                href="/wishlist"
+                aria-label={`Wishlist${count > 0 ? ` (${count} saved)` : ""}`}
+                aria-current={pathname === "/wishlist" ? "page" : undefined}
+                className="relative ml-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
+              >
+                <Heart
+                  size={18}
+                  aria-hidden
+                  className={pathname === "/wishlist" ? "fill-plum text-plum" : ""}
+                />
+                {count > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-plum px-1 text-[10px] font-semibold text-white">
+                    {count > 99 ? "99+" : count}
+                  </span>
+                )}
+              </Link>
+              <UserMenu name={session.user?.name} email={session.user?.email} />
+            </>
+          ) : (
+            <Link
+              href="/login"
+              className="ml-1 rounded-full px-3 py-1.5 text-sm font-medium text-ink-soft transition-colors hover:bg-sand hover:text-ink sm:px-4"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       </nav>
     </header>
