@@ -243,6 +243,18 @@ export function junkPriceFloorMinor(budgetMaxMinor: number | null): number {
   return budgetMaxMinor != null ? Math.max(100, Math.round(budgetMaxMinor * 0.02)) : 100;
 }
 
+/**
+ * Interpretation text (a badge, a tradeoff, a rationale) survives only if it
+ * asserts no product FACTS — specs, prices, materials, ratings live in the
+ * evidence-quoted claims stratum, never in free reasoning. Returns null when
+ * the text is empty after lint or trips the interpretation-fact patterns.
+ */
+export function scrubInterpretation(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const t = lintOutbound(raw).text;
+  return t && !interpretationViolations(t) ? t : null;
+}
+
 // ---------------------------------------------------------------------------
 // Board-item notarization — shared by the presentation notarizer, the instant
 // similarity rail, and the code-side category top-up. One admission standard:
@@ -302,8 +314,14 @@ export function notarizeBoardItem(
     product.categories.map((c) => c.value).join(" "),
   ].join(" ");
   if (isSupplementCategory(itemText) && !hasConsent(session.ledger, "supplements")) return null;
-  const insight = lintOutbound(input.insight).text;
-  if (!insight || (!input.trusted && interpretationViolations(insight))) return null;
+  let insight = lintOutbound(input.insight).text;
+  if (!insight) return null;
+  // A violating insight must NOT lose the whole VERIFIED product — its
+  // interpretation text simply can't assert product facts (specs / prices /
+  // materials). Neutralise the line, keep the item on the board.
+  if (!input.trusted && interpretationViolations(insight)) {
+    insight = "A solid fit for what you're after.";
+  }
   // The tradeoff is interpretation text too: model-authored spec assertions
   // ("only 250ml", "genuine leather trim") are dropped, never rendered — the
   // item survives, the unverifiable line does not.
@@ -356,7 +374,10 @@ export function verifyPresentation(
   const sections: VerifiedSection[] = raw.sections.map((section) => {
     const cards: VerifiedCard[] = [];
     for (const spec of section.cards ?? []) {
-      const entry = session.evidence.get(spec.productId);
+      // Resolve a truncated id the same way the board path does — the model
+      // routinely drops the "gid://shopify/p/" prefix, and evidence is keyed by
+      // the full gid, so a raw lookup would wrongly "not find" an inspected pick.
+      const entry = session.evidence.get(resolveEvidenceId(session, spec.productId));
       if (!entry) {
         droppedCards += 1;
         notes.push(
@@ -381,10 +402,17 @@ export function verifyPresentation(
         continue;
       }
       // Same junk-price screen as the board: a ₹15 "moisturiser" against a
-      // ₹1,000 budget is mis-scraped data, not a featured pick.
+      // ₹1,000 budget is mis-scraped data, not a featured pick. The floor is in
+      // the LEDGER currency, so only apply it to a same-currency offer — a
+      // foreign-currency card (which the budget path explicitly supports) must
+      // not be compared against a paise floor and mislabelled "bad data".
       const cardOffer = selectOffer(product);
+      const ledgerCurrency = session.ledger.constraints.currency?.toUpperCase() ?? null;
+      const cardCurrencyMatches =
+        ledgerCurrency != null && (cardOffer.currency ?? "").toUpperCase() === ledgerCurrency;
       if (
         cardOffer.priceMinor != null &&
+        cardCurrencyMatches &&
         cardOffer.priceMinor < junkPriceFloorMinor(session.ledger.constraints.budgetMaxMinor)
       ) {
         droppedCards += 1;
@@ -430,9 +458,13 @@ export function verifyPresentation(
         .filter((s) => s.length > 0 && !interpretationViolations(s));
 
       const offer = selectOffer(product);
+      // Badge / tradeoff / runner-up are interpretation text — they may NOT
+      // assert product facts (a "Waterproof pick" badge, "only 200ml", "genuine
+      // leather"). Same lint the board items and whyForYou already get.
+      const cardRole = scrubInterpretation(spec.role);
       cards.push({
         productId: product.id,
-        role: spec.role ? lintOutbound(spec.role).text.slice(0, 40) || null : null,
+        role: cardRole ? cardRole.slice(0, 40) : null,
         title: product.title,
         imageUrl: product.images[0]?.url ?? null,
         priceMinor: offer.priceMinor,
@@ -442,8 +474,8 @@ export function verifyPresentation(
         variantId: offer.variant?.id ?? null,
         claims,
         whyForYou,
-        tradeoff: spec.tradeoff ? lintOutbound(spec.tradeoff).text || null : null,
-        runnerUp: spec.runnerUp ? lintOutbound(spec.runnerUp).text || null : null,
+        tradeoff: scrubInterpretation(spec.tradeoff),
+        runnerUp: scrubInterpretation(spec.runnerUp),
         droppedClaims,
         logistics: logisticsMessage(product, intent),
         source: entry.source,
@@ -483,7 +515,10 @@ export function verifyPresentation(
   // an item without a verified get_product fetch has no render path — but the
   // board carries the agent's reasoning rather than quoted claims.
   const board: VerifiedBoardCategory[] = [];
-  const boardSeen = new Set<string>();
+  // Seed with everything already on the client's (add-only) board from prior
+  // turns, so the model re-listing a still-relevant product under a drifted
+  // category name can't render it twice on screen.
+  const boardSeen = new Set<string>(session.boardedIds);
   let boardUnverified = 0;
   for (const category of raw.board ?? []) {
     const items: VerifiedBoardItem[] = [];
@@ -523,11 +558,26 @@ export function verifyPresentation(
     ...sections.flatMap((s) => s.cards.map((c) => c.productId)),
   ]);
   const compositions: VerifiedComposition[] = (raw.compositions ?? [])
-    .map((c) => ({
-      name: lintOutbound(c.name).text || "Suggested set",
-      rationale: lintOutbound(c.rationale).text,
-      productIds: c.productIds.filter((id) => shown.has(id)),
-    }))
+    .map((c) => {
+      const lintedRationale = lintOutbound(c.rationale).text;
+      // The rationale is interpretation ("why these go together") — it may not
+      // assert product facts (materials, prices). Neutralise a violating line
+      // rather than dropping the whole combo.
+      const rationale = !lintedRationale
+        ? ""
+        : interpretationViolations(lintedRationale)
+          ? "These pieces are chosen to work well together."
+          : lintedRationale;
+      return {
+        name: lintOutbound(c.name).text || "Suggested set",
+        rationale,
+        // Resolve truncated ids before the membership check — same as every
+        // other id path — so a dropped-prefix id doesn't silently gut the combo.
+        productIds: c.productIds
+          .map((id) => resolveEvidenceId(session, id))
+          .filter((id) => shown.has(id)),
+      };
+    })
     .filter((c) => c.productIds.length > 0 && c.rationale.length > 0);
 
   const followUpText = raw.followUp ? lintOutbound(raw.followUp.text).text : "";

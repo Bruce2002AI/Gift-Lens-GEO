@@ -11,7 +11,12 @@ import {
   type Emit,
 } from "./tools";
 import { notarizeBoardItem, resolveEvidenceId, selectOffer } from "./truth";
-import type { AgentSession, VerifiedBoardItem, VerifiedPresentation } from "./types";
+import type {
+  AgentSession,
+  VerifiedBoardCategory,
+  VerifiedBoardItem,
+  VerifiedPresentation,
+} from "./types";
 
 /**
  * Code-built board rails. Two jobs, one admission standard (notarizeBoardItem):
@@ -35,6 +40,8 @@ import type { AgentSession, VerifiedBoardItem, VerifiedPresentation } from "./ty
 const SIMILAR_RAIL_SIZE = 8;
 /** A board category below this gets topped up from its own search aisles. */
 const CATEGORY_TARGET = 6;
+/** A whole board below this total gets missing plan components added (phase 2). */
+const OVERALL_TARGET = 12;
 /** Verification budget per thin category (one parallel evidence batch). */
 const TOP_UP_POOL = 12;
 
@@ -175,6 +182,68 @@ export async function runInstantSimilar(
   };
 }
 
+/**
+ * Last-resort board built entirely in code from the session's VERIFIED evidence
+ * — grouped by catalog category — so a turn that would otherwise DEGRADE (the
+ * model narrated instead of presenting, ran out of steps, or timed out) still
+ * hands the shopper real products instead of a dead end. Everything goes through
+ * notarizeBoardItem, so the same budget / currency / opt-in / price screens
+ * apply. Returns null only when there is genuinely nothing verified to show.
+ */
+export function composeFallbackPresentation(session: AgentSession): VerifiedPresentation | null {
+  const intent = ledgerToBaseIntent(session.ledger);
+  const byCategory = new Map<string, VerifiedBoardItem[]>();
+  const order: string[] = [];
+  for (const [id, entry] of session.evidence) {
+    if (session.boardedIds.has(id)) continue; // don't repeat what's already on screen
+    const item = notarizeBoardItem(
+      session,
+      { productId: id, insight: "One of the options I found for you.", isPick: false, trusted: true },
+      intent,
+    );
+    if (!item) continue;
+    const leaf = leafCategory(entry.product.categories[0]?.value ?? "Options") || "Options";
+    const name = leaf.charAt(0).toUpperCase() + leaf.slice(1);
+    if (!byCategory.has(name)) {
+      byCategory.set(name, []);
+      order.push(name);
+    }
+    const bucket = byCategory.get(name)!;
+    if (bucket.length < CATEGORY_TARGET) bucket.push(item);
+  }
+  const board: VerifiedBoardCategory[] = order
+    .map((name) => ({ name, items: byCategory.get(name) ?? [] }))
+    .filter((c) => c.items.length > 0)
+    .slice(0, 6);
+  if (board.reduce((n, c) => n + c.items.length, 0) === 0) return null;
+  return {
+    message:
+      "Here are the options I pulled together for you — tell me what to refine (price, style, or anything else) and I'll narrow it down.",
+    layout: "picks",
+    assumptions: [],
+    sections: [],
+    leftOut: [],
+    totalMinor: null,
+    totalCurrency: null,
+    currency: session.ledger.constraints.currency,
+    droppedCards: 0,
+    followUp: null,
+    board,
+    compositions: [],
+  };
+}
+
+/**
+ * Words too generic to signal relevance — a shared "men"/"budget" means nothing
+ * about whether a sweatshirt belongs in a Shirts rail. Only DISTINCTIVE terms
+ * (salicylic, vitamin, cleanser, linen…) count toward the relevance score.
+ */
+const GENERIC_QUERY_WORDS = new Set([
+  "men", "mens", "women", "womens", "unisex", "kids", "kid", "boys", "girls", "ladies", "gents",
+  "best", "top", "new", "good", "great", "cheap", "budget", "premium", "quality", "affordable",
+  "value", "pack", "set", "size", "piece", "pcs", "for", "the", "and", "with", "your", "his", "her",
+]);
+
 /** Words of the category name (singularized) that can vouch for a product. */
 function categoryNouns(categoryName: string): string[] {
   return categoryName
@@ -199,6 +268,24 @@ function wordTokens(text: string): Set<string> {
       .filter((w) => w.length >= 3)
       .map((w) => w.replace(/(?:es|s)$/, "")),
   );
+}
+
+/**
+ * How ON-TARGET a candidate is for a component, 0..N: how many of the
+ * component's PROFILE terms (the words of the generic searches that built the
+ * category, plus the category name) actually appear in the product's title or
+ * leaf categories. This is what keeps breadth from becoming noise — a generic
+ * "vitamin c serum" search returns lots of products, but only the ones that
+ * genuinely carry "vitamin"/"serum" score, and we fill the board best-first.
+ */
+function relevanceScore(product: NormalizedProduct, profile: Set<string>): number {
+  if (profile.size === 0) return 1; // nothing to judge against — don't over-filter
+  const tokens = wordTokens(
+    `${product.title} ${product.categories.map((c) => leafCategory(c.value)).join(" ")}`,
+  );
+  let score = 0;
+  for (const t of profile) if (tokens.has(t)) score += 1;
+  return score;
 }
 
 /**
@@ -260,11 +347,19 @@ export async function topUpBoard(
     const existingIds = category.items.map((i) => i.productId);
 
     // The candidate pool: every product surfaced by a search that contributed
-    // at least one item already in this category, in result order.
+    // at least one item already in this category, in result order. As we walk
+    // the contributing searches we also build the component's RELEVANCE PROFILE
+    // (their query words + the category name) so we can keep only on-target
+    // siblings — breadth without noise.
+    const profile = new Set<string>();
+    for (const noun of categoryNouns(category.name)) {
+      if (!GENERIC_QUERY_WORDS.has(noun)) profile.add(noun);
+    }
     const pool: string[] = [];
     const inPool = new Set<string>();
-    for (const ids of session.searchHits.values()) {
+    for (const [query, ids] of session.searchHits.entries()) {
       if (!ids.some((id) => existingIds.includes(id))) continue;
+      for (const t of wordTokens(query)) if (!GENERIC_QUERY_WORDS.has(t)) profile.add(t);
       for (const id of ids) {
         if (boardSeen.has(id) || inPool.has(id)) continue;
         inPool.add(id);
@@ -277,12 +372,30 @@ export async function topUpBoard(
     await verifyBoardItems(session, candidates, trace, emit);
     if (aborted?.()) return added;
 
+    // Score each verified candidate for relevance to the component, then fill
+    // the board MOST-RELEVANT first (ties keep catalog result order). A generic
+    // search gives lots of options; this makes sure the ones we auto-add are
+    // the ones that actually match the plan component.
+    const scored = candidates
+      .map((id) => {
+        const product = session.evidence.get(resolveEvidenceId(session, id))?.product ?? null;
+        return product ? { id, product, score: relevanceScore(product, profile) } : null;
+      })
+      .filter((x): x is { id: string; product: NormalizedProduct; score: number } => x != null)
+      .sort((a, b) => b.score - a.score);
+
     const top = category.items[0] ?? null;
-    for (const id of candidates) {
+    for (const { id, product, score } of scored) {
       if (category.items.length >= CATEGORY_TARGET) break;
       const entry = session.evidence.get(resolveEvidenceId(session, id));
       if (!entry) continue;
-      if (!fitsCategory(session, entry.product, category.name, existingIds)) continue;
+      // Admit an on-target sibling: it either LOOKS like the category
+      // (fitsCategory — right catalog kind) OR shares a real term with the
+      // component's search profile (score >= 1). Either alone is enough — a
+      // "salicylic serum" sibling fills a "Treatments" category via the profile
+      // term even though "treatment" isn't in its title. Only a sibling that
+      // matches NEITHER is noise we skip. The score also ordered them best-first.
+      if (score < 1 && !fitsCategory(session, product, category.name, existingIds)) continue;
       const delta = priceDelta(entry.product, top);
       const insight =
         delta.text != null
@@ -307,5 +420,46 @@ export async function topUpBoard(
       added += 1;
     }
   }
+
+  // Phase 2 — WHOLE-BOARD richness. A small model often boards ONE component and
+  // drops the rest it found (presents "Carbs" but not the protein / veg / fats,
+  // or one "Treatments" item and no cleanser / SPF). If the board is still thin
+  // overall, fill it from ALL candidates, grouped by catalog category, up to a
+  // rich total. Everything still passes notarizeBoardItem (budget / currency /
+  // opt-in / price), so gated items (e.g. supplements without consent) never slip
+  // in — we just keep pulling until the board is rich or the pool is exhausted.
+  const boardTotal = () => presentation.board.reduce((n, c) => n + c.items.length, 0);
+  if (boardTotal() < OVERALL_TARGET) {
+    const fresh = [...session.candidates.keys()]
+      .filter((id) => !boardSeen.has(resolveEvidenceId(session, id)))
+      .slice(0, 24);
+    if (fresh.length > 0) {
+      await verifyBoardItems(session, fresh, trace, emit);
+      if (aborted?.()) return added;
+      for (const id of fresh) {
+        if (boardTotal() >= OVERALL_TARGET) break;
+        const entry = session.evidence.get(resolveEvidenceId(session, id));
+        if (!entry) continue;
+        const item = notarizeBoardItem(
+          session,
+          { productId: id, insight: "Also part of the plan — one to consider.", isPick: false, trusted: true },
+          intent,
+        );
+        if (!item || boardSeen.has(item.productId)) continue;
+        const leaf = leafCategory(entry.product.categories[0]?.value ?? "Options") || "Options";
+        const name = leaf.charAt(0).toUpperCase() + leaf.slice(1);
+        const existing = presentation.board.find((c) => c.name.toLowerCase() === name.toLowerCase());
+        if (existing) {
+          if (existing.items.length >= CATEGORY_TARGET) continue;
+          existing.items.push(item);
+        } else {
+          presentation.board.push({ name, items: [item] });
+        }
+        boardSeen.add(item.productId);
+        added += 1;
+      }
+    }
+  }
+
   return added;
 }

@@ -15,7 +15,7 @@ import {
   lintOutbound,
   sniffSupplementConsent,
 } from "@/lib/agent/safety";
-import { topUpBoard } from "@/lib/agent/board";
+import { composeFallbackPresentation, topUpBoard } from "@/lib/agent/board";
 import { notarizeBoardItem, verifyClaim, verifyPresentation } from "@/lib/agent/truth";
 import { TraceCollector } from "@/lib/catalog/trace";
 import type { AgentSession, CardSpec, Presentation } from "@/lib/agent/types";
@@ -455,15 +455,18 @@ describe("loop helpers", () => {
 });
 
 describe("notarizeBoardItem — the shared board admission standard", () => {
-  it("admits a code-authored (trusted) price-delta insight but rejects the same text from the model", () => {
+  it("keeps a trusted price-delta insight verbatim, but sanitises the same price text from the model without dropping the item", () => {
     const s = sessionWith(product());
     const intent = ledgerToBaseIntent(s.ledger);
     const insight = "Close catalog match — ₹200.00 less than the one you tapped";
-    expect(
-      notarizeBoardItem(s, { productId: "p1", insight, trusted: true }, intent),
-    ).not.toBeNull();
-    // Untrusted (model-authored) interpretation may not assert prices.
-    expect(notarizeBoardItem(s, { productId: "p1", insight }, intent)).toBeNull();
+    // Code-authored (trusted): kept verbatim.
+    const trusted = notarizeBoardItem(s, { productId: "p1", insight, trusted: true }, intent);
+    expect(trusted?.insight).toBe(insight);
+    // Model-authored: the VERIFIED product must NOT be lost to a number in its
+    // reason — the item survives with a neutralised insight (never a silent drop).
+    const untrusted = notarizeBoardItem(s, { productId: "p1", insight }, intent);
+    expect(untrusted).not.toBeNull();
+    expect(untrusted!.insight).not.toContain("₹200");
   });
   it("refuses missing evidence, junk prices, and foreign currencies", () => {
     const s = sessionWith(product(), 400000);
@@ -588,6 +591,36 @@ describe("topUpBoard — refilling thin categories from their own search aisles"
     expect(await topUpBoard(s, presentation, new TraceCollector(), () => {})).toBe(0);
   });
 
+  it("adds a category for a searched-but-unboarded plan component (phase 2 whole-plan coverage)", async () => {
+    const carb = product({
+      id: "p-carb", title: "Brown Rice",
+      categories: [{ value: "Grocery > Carbs" }],
+      priceRange: { minMinor: 20000, maxMinor: 20000, currency: "INR" }, variants: [],
+    });
+    const s = sessionWith(carb);
+    const protein = product({
+      id: "p-prot", title: "Red Lentils",
+      categories: [{ value: "Grocery > Protein" }],
+      priceRange: { minMinor: 15000, maxMinor: 15000, currency: "INR" }, variants: [],
+    });
+    s.evidence.set(protein.id, { product: protein, source: "live", fetchedAt: new Date().toISOString(), snippets: [] });
+    s.searchHits.set("brown rice carbs", ["p-carb"]);
+    s.searchHits.set("high protein lentils", ["p-prot"]);
+    s.candidates.set("p-carb", "p-carb | Brown Rice | ₹200 | Carbs");
+    s.candidates.set("p-prot", "p-prot | Red Lentils | ₹150 | Protein");
+    const intent = ledgerToBaseIntent(s.ledger);
+    const carbItem = notarizeBoardItem(s, { productId: "p-carb", insight: "steady energy", isPick: true, trusted: true }, intent);
+    const presentation = {
+      message: "", layout: "picks" as const, assumptions: [], sections: [], leftOut: [],
+      totalMinor: null, totalCurrency: null, currency: "INR", droppedCards: 0, followUp: null,
+      board: [{ name: "Carbs", items: [carbItem!] }], compositions: [],
+    };
+    const added = await topUpBoard(s, presentation, new TraceCollector(), () => {});
+    expect(added).toBeGreaterThanOrEqual(1);
+    const names = presentation.board.map((c) => c.name.toLowerCase());
+    expect(names.some((n) => n.includes("protein"))).toBe(true);
+  });
+
   it("leaves full categories alone and never duplicates an item already on the board", async () => {
     const s = sessionWith(shirt("p-top", "White Slim Fit Shirt", 90000));
     const intent = ledgerToBaseIntent(s.ledger);
@@ -605,5 +638,97 @@ describe("topUpBoard — refilling thin categories from their own search aisles"
     };
     expect(await topUpBoard(s, presentation, new TraceCollector(), () => {})).toBe(0);
     expect(presentation.board[0].items).toHaveLength(6);
+  });
+});
+
+describe("verifyPresentation — adversarial-review regressions", () => {
+  function boardPresentation(over: Partial<Presentation>): Presentation {
+    return {
+      message: "Here you go.",
+      layout: "picks",
+      assumptions: [],
+      sections: [],
+      leftOut: [],
+      ...over,
+    };
+  }
+
+  it("nulls a featured-card tradeoff/runnerUp that asserts a product spec (F5)", () => {
+    const s = sessionWith(product());
+    const raw = presentationWith({
+      productId: "p1",
+      tradeoff: "Only 200ml, and the strap is genuine leather",
+      runnerUp: "Beat the ₹3,200 alternative",
+      role: "Waterproof pick",
+    });
+    const card = verifyPresentation(s, raw).presentation.sections[0].cards[0];
+    expect(card).toBeDefined();
+    expect(card.tradeoff).toBeNull();
+    expect(card.runnerUp).toBeNull();
+    expect(card.role).toBeNull();
+  });
+
+  it("resolves a truncated featured-card id to the inspected evidence (F2)", () => {
+    const s = sessionWith(product({ id: "gid://shopify/p/98765" }));
+    const raw = presentationWith({ productId: "98765" });
+    const { presentation } = verifyPresentation(s, raw);
+    expect(presentation.sections[0].cards).toHaveLength(1);
+    expect(presentation.sections[0].cards[0].productId).toBe("gid://shopify/p/98765");
+  });
+
+  it("does not re-board a product already shown in a prior turn (F7 cross-turn dedup)", () => {
+    const s = sessionWith(product());
+    s.boardedIds.add("p1");
+    const raw = boardPresentation({
+      board: [{ name: "Brightening serums", items: [{ productId: "p1", insight: "great pick", tradeoff: null }] }],
+    });
+    const { presentation } = verifyPresentation(s, raw);
+    const total = presentation.board.reduce((n, c) => n + c.items.length, 0);
+    expect(total).toBe(0);
+  });
+
+  it("neutralises a composition rationale that asserts a material, keeping the combo (F8)", () => {
+    const s = sessionWith(product({ id: "gid://shopify/p/aa", categories: [{ value: "Apparel > Shirts" }] }));
+    const raw = boardPresentation({
+      board: [{ name: "Shirts", items: [{ productId: "gid://shopify/p/aa", insight: "your anchor", tradeoff: null }] }],
+      compositions: [
+        {
+          name: "Premium set",
+          rationale: "The 100% merino sweater layers over full-grain leather boots.",
+          productIds: ["gid://shopify/p/aa"],
+        },
+      ],
+    });
+    const { presentation } = verifyPresentation(s, raw);
+    expect(presentation.compositions).toHaveLength(1);
+    expect(presentation.compositions[0].rationale).not.toMatch(/merino/i);
+  });
+
+  it("resolves a truncated composition product id so the combo survives (F9)", () => {
+    const s = sessionWith(product({ id: "gid://shopify/p/xy77", categories: [{ value: "Apparel > Shirts" }] }));
+    const raw = boardPresentation({
+      board: [{ name: "Shirts", items: [{ productId: "gid://shopify/p/xy77", insight: "solid", tradeoff: null }] }],
+      compositions: [{ name: "Combo", rationale: "These work together for a clean look.", productIds: ["xy77"] }],
+    });
+    const { presentation } = verifyPresentation(s, raw);
+    expect(presentation.compositions).toHaveLength(1);
+    expect(presentation.compositions[0].productIds).toContain("gid://shopify/p/xy77");
+  });
+});
+
+describe("composeFallbackPresentation — a degrade with evidence becomes a real board", () => {
+  it("builds a board from verified evidence, grouped by category, skipping already-boarded items", () => {
+    const s = sessionWith(product({ id: "p-a", categories: [{ value: "Beauty > Skincare > Cleanser" }] }));
+    const serum = product({ id: "p-b", categories: [{ value: "Beauty > Skincare > Serum" }] });
+    s.evidence.set(serum.id, { product: serum, source: "live", fetchedAt: new Date().toISOString(), snippets: [] });
+    const fb = composeFallbackPresentation(s);
+    expect(fb).not.toBeNull();
+    const names = fb!.board.map((c) => c.name);
+    expect(names).toContain("Cleanser");
+    expect(names).toContain("Serum");
+    // Already-boarded items are not repeated in the fallback.
+    s.boardedIds.add("p-a");
+    s.boardedIds.add("p-b");
+    expect(composeFallbackPresentation(s)).toBeNull();
   });
 });

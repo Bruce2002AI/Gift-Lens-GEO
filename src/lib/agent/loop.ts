@@ -13,7 +13,7 @@ import {
 } from "./ledger";
 import { CHARTERS, SHARED_CONTRACT } from "./personas";
 import { careFlagDef, EDUCATIONAL_FRAMING, lintOutbound, sniffSupplementConsent } from "./safety";
-import { runInstantSimilar, topUpBoard } from "./board";
+import { composeFallbackPresentation, runInstantSimilar, topUpBoard } from "./board";
 import {
   runGetProducts,
   runSearches,
@@ -287,6 +287,40 @@ export async function runExpertTurn(
       });
     }
   };
+  /**
+   * A turn that can't finish cleanly should still hand over any products it
+   * found, not a dead end. If nothing is verified yet but there are candidates
+   * from searches, inspect a batch so there's something real to show; then
+   * present a code-built board from the evidence (terminal "present"). Only when
+   * there's genuinely nothing to show do we emit the honest degraded notice.
+   */
+  const degradeOrPresent = async (degradedText: string): Promise<void> => {
+    if (aborted?.()) return;
+    // Inspect a batch of not-yet-verified candidates so the fallback can draw
+    // from EVERYTHING we found (veg / carbs / fats), not just the handful the
+    // model happened to inspect (which may all have been screened out).
+    const fresh = [...session.candidates.keys()]
+      .filter((id) => !session.evidence.has(id))
+      .slice(0, 14);
+    if (fresh.length > 0) {
+      await verifyBoardItems(session, fresh, trace, emit);
+      if (aborted?.()) return;
+    }
+    const fallback = composeFallbackPresentation(session);
+    if (fallback) {
+      for (const cat of fallback.board) {
+        for (const item of cat.items) session.boardedIds.add(item.productId);
+      }
+      dischargeCare();
+      emit({ type: "present", presentation: fallback });
+      session.transcript.push({ role: "assistant", content: fallback.message, turn: session.turn });
+      emit({ type: "done", terminal: "present" });
+      return;
+    }
+    emit({ type: "notice", tone: "degraded", text: degradedText });
+    dischargeCare();
+    emit({ type: "done", terminal: "degraded" });
+  };
 
   // Template-owned educational framing — per LENS, not per first turn, so a
   // mid-session switch into skincare/nutrition still gets it.
@@ -480,13 +514,9 @@ export async function runExpertTurn(
   while (actionsUsed < MAX_ACTIONS && terminal === null) {
     if (aborted?.()) return;
     if (Date.now() - startedAt > MAX_WALL_MS) {
-      emit({
-        type: "notice",
-        tone: "degraded",
-        text: "I ran out of thinking time this turn — here's where I got to. Send a message and I'll pick it right up.",
-      });
-      dischargeCare();
-      emit({ type: "done", terminal: "degraded" });
+      await degradeOrPresent(
+        "I ran out of thinking time this turn — here's where I got to. Send a message and I'll pick it right up.",
+      );
       return;
     }
 
@@ -515,13 +545,9 @@ export async function runExpertTurn(
         failures: modelFailures,
       });
       if (modelFailures >= 2) {
-        emit({
-          type: "notice",
-          tone: "degraded",
-          text: "I hit a technical snag partway through. Here's what I'd verified so far — send a message to continue and I'll pick up from here.",
-        });
-        dischargeCare();
-        emit({ type: "done", terminal: "degraded" });
+        await degradeOrPresent(
+          "I hit a technical snag partway through. Here's what I'd verified so far — send a message to continue and I'll pick up from here.",
+        );
         return;
       }
       continue;
@@ -773,28 +799,39 @@ export async function runExpertTurn(
           (n, c) => n + c.items.length,
           0,
         );
-        if (boardCount === 0 && session.candidates.size >= 3 && boardNudges < 1) {
+        // The board is the shopper's MAIN product view and must be RICH, not
+        // thin — fires on an empty board, OR on an under-filled one when there
+        // are plenty of unused candidates to fill it (the "maximum products so
+        // they can choose" goal). A genuinely thin catalog won't trip it.
+        const emptyBoard = boardCount === 0 && session.candidates.size >= 3;
+        const thinBoard = boardCount < 5 && session.candidates.size >= 8;
+        if ((emptyBoard || thinBoard) && boardNudges < 1) {
           boardNudges += 1;
           observations.push(
-            `SYSTEM: your presentation had an EMPTY board — the side panel is the shopper's main product view and must never be empty. Re-send this present with "board" populated: group ALL your candidates into the categories this request needs (even a minimal skincare routine still lists the cleanser/treatment/moisturiser options on the board), every item with a one-line insight, and a tradeoff on every item after the first two in a category. Include "compositions" too if this is a look or a staged plan. You do not need to inspect them first.`,
+            `SYSTEM: your board has only ${boardCount} item(s) but you have ${session.candidates.size} verified candidates in hand — the side panel is the shopper's MAIN product view and it looks thin. Re-send this present with a RICH board: group your candidates into your PLAN's components (cleanser / serum / SPF for a routine, protein / carb / veg for a plan, shirts / trousers / shoes for an outfit, gesture / keepsake / experience for a gift), with 5-6 REAL options per component so they can actually choose. Even a minimal recommended routine still lists many options per role — never hide options to keep it simple. Add "compositions" (3-4 combos) too. You do not need to inspect them first.`,
           );
           break;
         }
-        // A look/plan request wants complete compositions, not just a shortlist.
-        const wantsComposition =
-          session.lens === "style" ||
-          /\b(outfit|look|ensemble|complete|routine|plan|combo)\b/i.test(
-            session.transcript.filter((t) => t.role === "user").slice(-2).map((t) => t.content).join(" "),
-          );
+        // Any answer spanning 2+ components wants ready-made SETS, not just a
+        // pile of options — combos/buy-togethers, in every lens.
+        const boardCatCount = (action.presentation.board ?? []).length;
         if (
-          wantsComposition &&
-          (action.presentation.compositions ?? []).length === 0 &&
-          (action.presentation.board ?? []).length >= 2 &&
+          boardCatCount >= 2 &&
+          (action.presentation.compositions ?? []).length < 3 &&
           compositionNudges < 1
         ) {
           compositionNudges += 1;
+          const comboWord =
+            session.lens === "style"
+              ? "complete outfits"
+              : session.lens === "skincare"
+                ? "complete routines (e.g. gentle-starter, barrier-repair, brightening)"
+                : session.lens === "nutrition"
+                  ? "buy-together plans (e.g. budget, high-protein, quick-prep)"
+                  : "gift combos / buy-togethers (e.g. a romantic set, a practical set, an experience-led set)";
+          const haveCombos = (action.presentation.compositions ?? []).length;
           observations.push(
-            `SYSTEM: you listed the pieces but never assembled them. Re-send this present with "compositions": 3-4 complete, genuinely different looks/stages built from your board items (one per category each), every one with a rationale explaining why those pieces work together — colour, fit, occasion, comfort. Keep the board exactly as you had it.`,
+            `SYSTEM: your board spans ${boardCatCount} components but you only assembled ${haveCombos} set(s). The shopper wants ready-made SETS to choose from, not just a pile of options. Re-send this present with "compositions": 3-4 genuinely different ${comboWord} built from your board items (one per component each), each with a one-line rationale for why those pieces belong together. Keep the board exactly as you had it.`,
           );
           break;
         }
@@ -825,16 +862,25 @@ export async function runExpertTurn(
           (n, s) => n + (s.cards?.length ?? 0),
           0,
         );
+        const requestedBoard = (action.presentation.board ?? []).reduce(
+          (n, c) => n + c.items.length,
+          0,
+        );
         const { presentation, notes } = verifyPresentation(session, action.presentation);
         const verifiedCards = presentation.sections.reduce((n, s) => n + s.cards.length, 0);
         const verifiedBoardCount = presentation.board.reduce((n, c) => n + c.items.length, 0);
-        // Only a TOTAL wipeout is worth rejecting: if the board still carries
-        // real products, ship them — a few featured cards failing verification
-        // (often just junk-priced catalog data) must not sink the whole answer.
-        if (requestedCards > 0 && verifiedCards === 0 && verifiedBoardCount === 0) {
+        // A TOTAL wipeout — the model tried to show products (cards OR board)
+        // but NONE survived verification — must never ship as a silent empty
+        // present. This fires for a board-only present too (e.g. every item was
+        // held back for opt-in, currency, or price), not just card presents.
+        if (
+          verifiedCards === 0 &&
+          verifiedBoardCount === 0 &&
+          (requestedCards > 0 || requestedBoard > 0)
+        ) {
           invalidStreak += 1;
           observations.push(
-            `SYSTEM: nothing survived verification — ${notes.join(" | ").slice(0, 500)}. Put your inspected products on the board (list their ids) and fix any claims to quote the snippets verbatim.`,
+            `SYSTEM: nothing survived verification — ${notes.join(" | ").slice(0, 500) || "every product was screened out (budget, currency, opt-in, junk price, or unverifiable claims)"}. Present DIFFERENT products that genuinely fit and pass those screens; if there truly aren't any, use note_limitation and say so honestly — do NOT ship an empty present.`,
           );
           break;
         }
@@ -886,31 +932,28 @@ export async function runExpertTurn(
 
     if (action.action !== "say") consecutiveSays = 0;
 
+    // A superseded turn must NOT mark the demo-data notice as delivered while
+    // its emit is being dropped (search/inspect cases await without re-checking
+    // abort). Check the guard BEFORE disclosing, or the banner is lost forever.
+    if (aborted?.()) return;
     // Demo-data disclosure after ANY catalog access (search OR inspect), once
     // per session — a mock fixture reached via get_product must disclose too.
     discloseMock();
 
     if (invalidStreak >= MAX_INVALID_STREAK) {
-      emit({
-        type: "notice",
-        tone: "degraded",
-        text: "I tripped over my own output twice — rather than guess, I'm stopping here. Nudge me and I'll continue.",
-      });
-      dischargeCare();
-      emit({ type: "done", terminal: "degraded" });
+      await degradeOrPresent(
+        "I tripped over my own output twice — rather than guess, I'm stopping here. Nudge me and I'll continue.",
+      );
       return;
     }
   }
 
   if (terminal === null) {
-    // Action budget exhausted without a terminal — finish honestly.
-    emit({
-      type: "notice",
-      tone: "degraded",
-      text: "I used up my step budget before finishing. Tell me to continue and I'll pick up exactly where I stopped.",
-    });
-    dischargeCare();
-    emit({ type: "done", terminal: "degraded" });
+    // Action budget exhausted without a terminal — hand over what we verified
+    // (a code-built board) rather than finishing empty-handed.
+    await degradeOrPresent(
+      "I used up my step budget before finishing. Tell me to continue and I'll pick up exactly where I stopped.",
+    );
     return;
   }
 
