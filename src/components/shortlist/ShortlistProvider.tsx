@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { useToast } from "@/components/ui/ToastProvider";
-import { shortlistKey, type ShortlistItem } from "@/lib/shortlist/types";
+import { shortlistKey, type ShortlistEntry, type ShortlistItem } from "@/lib/shortlist/types";
 import { ShortlistDrawer } from "@/components/shortlist/ShortlistDrawer";
 
 /**
@@ -22,12 +22,15 @@ import { ShortlistDrawer } from "@/components/shortlist/ShortlistDrawer";
 const STORAGE_KEY = "giftlens.shortlist";
 
 interface ShortlistContextValue {
-  items: ShortlistItem[];
+  items: ShortlistEntry[];
+  /** Total quantity across all lines — the cart badge count. */
   count: number;
   isShortlisted: (productId: string, source: "live" | "mock") => boolean;
   add: (item: ShortlistItem) => void;
   remove: (productId: string, source: "live" | "mock") => void;
   toggle: (item: ShortlistItem) => void;
+  /** Nudge a line's quantity by ±1 (never below 1). */
+  setQuantity: (productId: string, source: "live" | "mock", delta: 1 | -1) => void;
   clear: () => void;
   open: boolean;
   openDrawer: () => void;
@@ -44,7 +47,7 @@ export function useShortlist(): ShortlistContextValue {
 
 export function ShortlistProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
-  const [items, setItems] = useState<ShortlistItem[]>([]);
+  const [items, setItems] = useState<ShortlistEntry[]>([]);
   const [open, setOpen] = useState(false);
 
   // Hydrate from sessionStorage once, after mount (avoids SSR mismatch).
@@ -55,7 +58,10 @@ export function ShortlistProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
       try {
         const raw = sessionStorage.getItem(STORAGE_KEY);
-        if (raw) setItems(JSON.parse(raw) as ShortlistItem[]);
+        if (!raw) return;
+        // Older sessions stored items without a quantity — default it to 1.
+        const parsed = JSON.parse(raw) as Array<ShortlistItem & { quantity?: number }>;
+        setItems(parsed.map((i) => ({ ...i, quantity: Math.max(1, i.quantity ?? 1) })));
       } catch {
         /* corrupted/blocked storage — start empty */
       }
@@ -65,7 +71,7 @@ export function ShortlistProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const persist = useCallback((next: ShortlistItem[]) => {
+  const persist = useCallback((next: ShortlistEntry[]) => {
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
@@ -84,13 +90,28 @@ export function ShortlistProvider({ children }: { children: React.ReactNode }) {
         if (prev.some((i) => i.productId === item.productId && i.source === item.source)) {
           return prev;
         }
-        const next = [item, ...prev];
+        const next = [{ ...item, quantity: 1 }, ...prev];
         persist(next);
         return next;
       });
       toast("Added to shortlist");
     },
     [persist, toast],
+  );
+
+  const setQuantity = useCallback(
+    (productId: string, source: "live" | "mock", delta: 1 | -1) => {
+      setItems((prev) => {
+        const next = prev.map((i) =>
+          i.productId === productId && i.source === source
+            ? { ...i, quantity: Math.max(1, i.quantity + delta) }
+            : i,
+        );
+        persist(next);
+        return next;
+      });
+    },
+    [persist],
   );
 
   const remove = useCallback(
@@ -125,11 +146,12 @@ export function ShortlistProvider({ children }: { children: React.ReactNode }) {
 
   const value: ShortlistContextValue = {
     items,
-    count: items.length,
+    count: items.reduce((n, i) => n + i.quantity, 0),
     isShortlisted: (productId, source) => keys.has(shortlistKey(productId, source)),
     add,
     remove,
     toggle,
+    setQuantity,
     clear,
     open,
     openDrawer: () => setOpen(true),

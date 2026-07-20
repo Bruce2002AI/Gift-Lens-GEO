@@ -45,7 +45,7 @@ const ARROW_CLASS =
 
 /** Small outlined action, sized for the compact card footer. */
 const ACTION_CLASS =
-  "inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-line bg-white px-2 py-1.5 text-[11px] font-medium text-ink transition-colors hover:border-plum hover:text-plum disabled:cursor-not-allowed disabled:border-line disabled:text-ink-soft/60 disabled:hover:border-line disabled:hover:text-ink-soft/60";
+  "inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-line bg-white px-2 py-1.5 text-[11px] font-medium text-ink transition-all hover:border-plum hover:text-plum active:scale-[0.97] disabled:cursor-not-allowed disabled:border-line disabled:text-ink-soft/60 disabled:hover:border-line disabled:hover:text-ink-soft/60";
 
 /**
  * The side-panel product board: every option the agent has surfaced this
@@ -175,10 +175,18 @@ function CategorySection({
   if (layout === "grid") {
     return (
       <section aria-label={category.name} className="space-y-3">
-        {heading}
+        <div className="sticky top-[3.75rem] z-20 -mx-1 bg-cream/92 px-1 py-2 backdrop-blur-sm">
+          {heading}
+        </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
-          {items.map((item) => (
-            <BoardCard key={item.productId} item={item} onMoreLike={onMoreLike} busy={busy} />
+          {items.map((item, i) => (
+            <div
+              key={item.productId}
+              className="animate-rise"
+              style={{ animationDelay: `${Math.min(i * 40, 240)}ms` }}
+            >
+              <BoardCard item={item} onMoreLike={onMoreLike} busy={busy} />
+            </div>
           ))}
         </div>
       </section>
@@ -244,7 +252,7 @@ function BoardCard({
 }) {
   return (
     <article
-      className={`flex h-full flex-col overflow-hidden rounded-xl border bg-white transition-shadow ${
+      className={`flex h-full flex-col overflow-hidden rounded-xl border bg-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-(--shadow-lift) ${
         item.isPick ? "border-plum/45 shadow-(--shadow-card)" : "border-line"
       }`}
     >
@@ -330,7 +338,7 @@ function BoardCard({
           <ShortlistButton
             item={snapshotFromBoardItem(item)}
             labeled
-            className={ACTION_CLASS}
+            className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-plum px-2 py-1.5 text-[11px] font-medium text-white transition-all hover:bg-plum-dark active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft/60 [&_svg]:text-white"
           />
         </div>
       </div>

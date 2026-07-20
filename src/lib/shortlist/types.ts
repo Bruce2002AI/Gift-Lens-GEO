@@ -8,6 +8,9 @@ import type { WishlistItemInput } from "@/lib/wishlist/types";
  */
 export type ShortlistItem = WishlistItemInput;
 
+/** A shortlisted product plus its chosen quantity (the cart line). */
+export type ShortlistEntry = ShortlistItem & { quantity: number };
+
 export function shortlistKey(productId: string, source: "live" | "mock"): string {
   return `${source}:${productId}`;
 }

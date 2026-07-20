@@ -77,11 +77,26 @@ body {
   background: transparent;
 }
 
+/* Buttons show a pointer; disabled ones fall back to not-allowed. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* Visible, high-contrast focus for keyboard users */
 :focus-visible {
   outline: 2px solid var(--color-plum);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* The composer shows its focus state via the wrapper's ring, so the textarea
+   itself shouldn't also draw the global focus outline. */
+#expert-input:focus-visible {
+  outline: none;
 }
 
 @layer components {
@@ -132,4 +147,87 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .skeleton::after { animation: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Motion & loading — entrance animations, shimmer skeletons, streaming dots.
+   All gated by prefers-reduced-motion via the reduce block above.
+---------------------------------------------------------------------------- */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .animate-rise {
+    animation: fade-in-up 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  /* Soft top/bottom fade so scroll areas hint at more content without a bar. */
+  .scroll-fade {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 14px,
+      #000 calc(100% - 14px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 14px,
+      #000 calc(100% - 14px),
+      transparent 100%
+    );
+  }
+}
+
+/* Shimmering placeholder block used by loading skeletons. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-sand);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.55),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
 }
