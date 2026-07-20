@@ -2,8 +2,6 @@
 
 import {
   Award,
-  Bookmark,
-  BookmarkCheck,
   ExternalLink,
   Eye,
   Sparkles,
@@ -14,6 +12,8 @@ import type { GiftRecommendation } from "@/lib/gift/types";
 import type { ModeBadge } from "@/lib/modes/types";
 import { formatMinorRange } from "@/lib/gift/currency";
 import { ProductImage } from "@/components/catalog/ProductImage";
+import { WishlistButton } from "@/components/wishlist/WishlistButton";
+import { snapshotFromProduct } from "@/lib/wishlist/snapshot";
 
 const ROLE_META = {
   best_match: {
@@ -44,15 +44,11 @@ const ROLE_META = {
 
 export function RecommendationCard({
   rec,
-  saved,
   onView,
-  onToggleSave,
   badges,
 }: {
   rec: GiftRecommendation;
-  saved: boolean;
   onView: (productId: string) => void;
-  onToggleSave: (productId: string) => void;
   /** Mode-supplied badge labels; falls back to the gift role labels. */
   badges?: ModeBadge[];
 }) {
@@ -93,12 +89,16 @@ export function RecommendationCard({
           {meta.label}
         </span>
         <span
-          className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+          className={`absolute bottom-3 left-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
             rec.source === "live" ? "bg-ok/90 text-white" : "bg-warn/90 text-white"
           }`}
         >
           {rec.source === "live" ? "Live" : "Mock"}
         </span>
+        <WishlistButton
+          input={snapshotFromProduct(rec)}
+          className="absolute right-3 top-3 z-10"
+        />
       </div>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
@@ -182,19 +182,6 @@ export function RecommendationCard({
             >
               <Eye size={14} aria-hidden />
               Details
-            </button>
-            <button
-              type="button"
-              onClick={() => onToggleSave(p.id)}
-              aria-pressed={saved}
-              aria-label={saved ? "Remove from saved" : "Save product"}
-              className="btn-secondary !px-3 !py-2 text-sm"
-            >
-              {saved ? (
-                <BookmarkCheck size={14} className="text-plum" aria-hidden />
-              ) : (
-                <Bookmark size={14} aria-hidden />
-              )}
             </button>
             {buyUrl && available && (
               <a

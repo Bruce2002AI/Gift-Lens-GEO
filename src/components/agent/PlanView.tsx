@@ -1,21 +1,19 @@
 "use client";
 
-import { Bookmark, BookmarkCheck, ExternalLink, Eye, Star } from "lucide-react";
+import { ExternalLink, Eye, Heart, Star } from "lucide-react";
 import type { PlanResult, Pick } from "@/lib/modes/types";
 import { formatMinorRange } from "@/lib/gift/currency";
 import { ProductImage } from "@/components/catalog/ProductImage";
+import { useWishlist } from "@/components/wishlist/WishlistProvider";
+import { snapshotFromProduct } from "@/lib/wishlist/snapshot";
 
 /** Renders a multi-component plan/bundle: grouped components, each with a primary + alternatives, and a running total. */
 export function PlanView({
   plan,
-  savedIds,
   onView,
-  onToggleSave,
 }: {
   plan: PlanResult;
-  savedIds: string[];
   onView: (productId: string) => void;
-  onToggleSave: (productId: string) => void;
 }) {
   // Preserve component order, clustering consecutive same-group runs. Indices
   // (not labels/keys) drive React keys so a recurring group label or a
@@ -70,13 +68,7 @@ export function PlanView({
                   <p className="mb-3 text-sm text-ink-soft">{c.why}</p>
 
                   {c.primary ? (
-                    <PlanProductRow
-                      pick={c.primary}
-                      primary
-                      saved={savedIds.includes(c.primary.productId)}
-                      onView={onView}
-                      onToggleSave={onToggleSave}
-                    />
+                    <PlanProductRow pick={c.primary} primary onView={onView} />
                   ) : (
                     <p className="rounded-lg bg-sand/60 px-3 py-2 text-sm text-ink-soft">
                       {c.note ?? "No in-budget match found for this component."}
@@ -90,13 +82,7 @@ export function PlanView({
                       </p>
                       <div className="space-y-2">
                         {c.alternatives.map((alt) => (
-                          <PlanProductRow
-                            key={alt.productId}
-                            pick={alt}
-                            saved={savedIds.includes(alt.productId)}
-                            onView={onView}
-                            onToggleSave={onToggleSave}
-                          />
+                          <PlanProductRow key={alt.productId} pick={alt} onView={onView} />
                         ))}
                       </div>
                     </div>
@@ -114,16 +100,14 @@ export function PlanView({
 function PlanProductRow({
   pick,
   primary,
-  saved,
   onView,
-  onToggleSave,
 }: {
   pick: Pick;
   primary?: boolean;
-  saved: boolean;
   onView: (productId: string) => void;
-  onToggleSave: (productId: string) => void;
 }) {
+  const { isWishlisted, toggle } = useWishlist();
+  const saved = isWishlisted(pick.product.id, pick.source);
   const p = pick.product;
   const variant =
     p.variants.find((v) => v.id === pick.variantId) ??
@@ -172,9 +156,9 @@ function PlanProductRow({
             type="button"
             className="inline-flex items-center gap-1 text-ink-soft hover:text-plum"
             aria-pressed={saved}
-            onClick={() => onToggleSave(p.id)}
+            onClick={() => toggle(snapshotFromProduct(pick))}
           >
-            {saved ? <BookmarkCheck size={12} className="text-plum" aria-hidden /> : <Bookmark size={12} aria-hidden />}
+            <Heart size={12} aria-hidden className={saved ? "fill-plum text-plum" : ""} />
             {saved ? "Saved" : "Save"}
           </button>
           {buyUrl && available && (
