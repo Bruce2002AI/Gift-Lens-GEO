@@ -5,6 +5,15 @@ import { ChevronLeft, ChevronRight, ExternalLink, Sparkles } from "lucide-react"
 import type { VerifiedBoardCategory, VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { formatMinor } from "@/lib/gift/currency";
+import { WishlistButton } from "@/components/wishlist/WishlistButton";
+import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
+import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
+
+/** How the board arranges each category's options. */
+export type BoardLayout = "rail" | "grid";
+
+/** Client-side ordering applied within each category. */
+export type BoardSort = "picks" | "price-asc" | "price-desc";
 
 /**
  * Slide width for a board card and the gap between slides. These mirror the
@@ -13,6 +22,22 @@ import { formatMinor } from "@/lib/gift/currency";
  */
 const CARD_WIDTH = 200;
 const CARD_GAP = 12;
+
+/**
+ * Orders a category's items for display. "picks" preserves the agent's own
+ * ranking (picks already lead); the price sorts reorder every item, nulls last,
+ * so an option missing a price never jumps ahead of a real one.
+ */
+function sortItems(items: VerifiedBoardItem[], sort: BoardSort): VerifiedBoardItem[] {
+  if (sort === "picks") return items;
+  const dir = sort === "price-asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    if (a.priceMinor == null && b.priceMinor == null) return 0;
+    if (a.priceMinor == null) return 1;
+    if (b.priceMinor == null) return -1;
+    return (a.priceMinor - b.priceMinor) * dir;
+  });
+}
 
 /** Circular chevron overlaying the slider edge — translucent, subtly raised. */
 const ARROW_CLASS =
@@ -36,6 +61,9 @@ export function ProductBoard({
   board,
   onMoreLike,
   busy = false,
+  layout = "rail",
+  sort = "picks",
+  showHeading = true,
 }: {
   /** Accumulated across turns by the page — categories never vanish. */
   board: VerifiedBoardCategory[];
@@ -43,20 +71,28 @@ export function ProductBoard({
   onMoreLike: (productId: string) => void;
   /** True while a turn streams — actions that start a new turn are disabled. */
   busy?: boolean;
+  /** "rail" = horizontal snap-scroller (compact side panel); "grid" = wrapping grid (results page). */
+  layout?: BoardLayout;
+  /** Client-side ordering within each category. */
+  sort?: BoardSort;
+  /** The results page supplies its own header, so the built-in one can be hidden. */
+  showHeading?: boolean;
 }) {
   const total = board.reduce((n, category) => n + category.items.length, 0);
 
   return (
     <section aria-label="Products found" className="space-y-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="font-(family-name:--font-display) text-lg font-semibold">Products</h2>
-        {total > 0 && (
-          <span className="text-xs text-ink-soft">
-            {total} option{total === 1 ? "" : "s"} · {board.length} categor
-            {board.length === 1 ? "y" : "ies"}
-          </span>
-        )}
-      </div>
+      {showHeading && (
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="font-(family-name:--font-display) text-lg font-semibold">Products</h2>
+          {total > 0 && (
+            <span className="text-xs text-ink-soft">
+              {total} option{total === 1 ? "" : "s"} · {board.length} categor
+              {board.length === 1 ? "y" : "ies"}
+            </span>
+          )}
+        </div>
+      )}
 
       {board.length === 0 ? (
         <p className="card p-4 text-sm leading-relaxed text-ink-soft">
@@ -65,13 +101,15 @@ export function ProductBoard({
           }
         </p>
       ) : (
-        <div className="space-y-5">
+        <div className={layout === "grid" ? "space-y-8" : "space-y-5"}>
           {board.map((category) => (
             <CategorySection
               key={category.name}
               category={category}
               onMoreLike={onMoreLike}
               busy={busy}
+              layout={layout}
+              sort={sort}
             />
           ))}
         </div>
@@ -84,11 +122,16 @@ function CategorySection({
   category,
   onMoreLike,
   busy,
+  layout,
+  sort,
 }: {
   category: VerifiedBoardCategory;
   onMoreLike: (productId: string) => void;
   busy: boolean;
+  layout: BoardLayout;
+  sort: BoardSort;
 }) {
+  const items = sortItems(category.items, sort);
   const railRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -116,15 +159,36 @@ function CategorySection({
     });
   };
 
+  const heading = (
+    <div className="flex items-baseline justify-between gap-2 border-b border-line pb-2">
+      <h3 className="font-(family-name:--font-display) text-sm font-semibold text-ink">
+        {category.name}
+      </h3>
+      <span className="shrink-0 text-[11px] text-ink-soft">
+        {category.items.length} option{category.items.length === 1 ? "" : "s"}
+      </span>
+    </div>
+  );
+
+  // Results-page layout: a wrapping grid, cards fill their cell. Each category
+  // reads as a labeled shelf; the whole page scrolls as one.
+  if (layout === "grid") {
+    return (
+      <section aria-label={category.name} className="space-y-3">
+        {heading}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+          {items.map((item) => (
+            <BoardCard key={item.productId} item={item} onMoreLike={onMoreLike} busy={busy} />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section aria-label={category.name}>
-      <div className="sticky top-0 z-10 -mx-1 flex items-baseline justify-between gap-2 border-b border-line bg-cream/95 px-1 py-2 backdrop-blur-sm">
-        <h3 className="font-(family-name:--font-display) text-sm font-semibold text-ink">
-          {category.name}
-        </h3>
-        <span className="shrink-0 text-[11px] text-ink-soft">
-          {category.items.length} option{category.items.length === 1 ? "" : "s"}
-        </span>
+      <div className="sticky top-0 z-10 -mx-1 bg-cream/95 px-1 py-2 backdrop-blur-sm">
+        {heading}
       </div>
 
       <div className="relative mt-3">
@@ -137,7 +201,7 @@ function CategorySection({
           style={{ scrollbarWidth: "none" }}
           className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden"
         >
-          {category.items.map((item) => (
+          {items.map((item) => (
             <div key={item.productId} className="w-[200px] shrink-0 snap-start">
               <BoardCard item={item} onMoreLike={onMoreLike} busy={busy} />
             </div>
@@ -185,11 +249,33 @@ function BoardCard({
       }`}
     >
       <div className="relative">
-        <ProductImage src={item.imageUrl} alt={item.title} className="aspect-square w-full" />
+        {item.productUrl ? (
+          <a
+            href={item.productUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`View ${item.title} on the merchant site (opens in a new tab)`}
+            className="group block"
+          >
+            <ProductImage
+              src={item.imageUrl}
+              alt={item.title}
+              className="aspect-square w-full transition-transform duration-300 group-hover:scale-105"
+            />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/0 opacity-0 transition-all duration-200 group-hover:bg-ink/30 group-hover:opacity-100">
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-semibold text-ink shadow-(--shadow-card)">
+                <ExternalLink size={10} aria-hidden />
+                View
+              </span>
+            </span>
+          </a>
+        ) : (
+          <ProductImage src={item.imageUrl} alt={item.title} className="aspect-square w-full" />
+        )}
         {item.isPick && (
           <span
             title="Among the expert's top picks in this category"
-            className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[10px] font-semibold text-white"
+            className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[10px] font-semibold text-white"
           >
             <Sparkles size={10} aria-hidden />
             AI pick
@@ -198,11 +284,15 @@ function BoardCard({
         {item.source === "mock" && (
           <span
             title="Demo catalog data — not a live listing"
-            className="absolute right-2 top-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+            className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
           >
             Demo data
           </span>
         )}
+        <WishlistButton
+          input={snapshotFromBoardItem(item)}
+          className="absolute right-2 top-2 z-10 !h-8 !w-8"
+        />
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5 p-2.5">
@@ -237,29 +327,11 @@ function BoardCard({
             <Sparkles size={12} aria-hidden />
             Show Similar
           </button>
-          {item.productUrl ? (
-            <a
-              href={item.productUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`View ${item.title} on the merchant site (opens in a new tab)`}
-              className={ACTION_CLASS}
-            >
-              <ExternalLink size={12} aria-hidden />
-              View
-            </a>
-          ) : (
-            <button
-              type="button"
-              disabled
-              aria-label={`No merchant link available for ${item.title}`}
-              title="This listing has no merchant link"
-              className={ACTION_CLASS}
-            >
-              <ExternalLink size={12} aria-hidden />
-              View
-            </button>
-          )}
+          <ShortlistButton
+            item={snapshotFromBoardItem(item)}
+            labeled
+            className={ACTION_CLASS}
+          />
         </div>
       </div>
     </article>

@@ -48,6 +48,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Scroll stays; the scrollbar chrome is hidden everywhere for a cleaner UI. */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chrome / Safari */
+}
+
 /* Visible, high-contrast focus for keyboard users */
 :focus-visible {
   outline: 2px solid var(--color-plum);

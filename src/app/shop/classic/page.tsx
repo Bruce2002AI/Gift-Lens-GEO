@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bookmark, CheckCircle2, Loader2, RotateCcw, Send, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Loader2, RotateCcw, Send, ShieldAlert } from "lucide-react";
 import type { AgentResponse, Blueprint, ModeMeta, ShoppingModeId } from "@/lib/modes/types";
 import type { TraceEvent } from "@/lib/catalog/types";
 import { ALL_MODE_META, MODE_META } from "@/lib/modes/meta";
@@ -12,7 +12,6 @@ import { modeIcon } from "@/components/agent/mode-icons";
 import { SourceBanner } from "@/components/catalog/SourceBanner";
 import { TracePanel } from "@/components/catalog/TracePanel";
 
-const SAVED_KEY = "shoplens.saved";
 const INITIAL_PICKS_VISIBLE = 12;
 
 interface ChatMessage {
@@ -32,44 +31,13 @@ export default function ShopPage() {
   const [visiblePicks, setVisiblePicks] = useState(INITIAL_PICKS_VISIBLE);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [savedIds, setSavedIds] = useState<string[]>([]);
   const [form, setForm] = useState({ budgetMax: "", currency: "", country: "", occasion: "" });
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      try {
-        const raw = localStorage.getItem(SAVED_KEY) ?? localStorage.getItem("giftlens.saved");
-        if (raw) setSavedIds(JSON.parse(raw));
-      } catch {
-        /* corrupted storage — start fresh */
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, loading]);
-
-  const toggleSave = useCallback((productId: string) => {
-    setSavedIds((prev) => {
-      const next = prev.includes(productId)
-        ? prev.filter((id) => id !== productId)
-        : [...prev, productId];
-      try {
-        localStorage.setItem(SAVED_KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
 
   const appendTrace = useCallback((events: TraceEvent[]) => {
     setTrace((prev) => [...prev, ...events]);
@@ -232,9 +200,6 @@ export default function ShopPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <span className="btn-secondary !py-2 text-sm">
-            <Bookmark size={15} aria-hidden /> Saved ({savedIds.length})
-          </span>
           {messages.length > 0 && (
             <button type="button" onClick={reset} className="btn-secondary !py-2 text-sm">
               <RotateCcw size={15} aria-hidden /> Start over
@@ -429,9 +394,6 @@ export default function ShopPage() {
                   <RecommendationCard
                     key={rec.productId}
                     rec={rec}
-                    saved={savedIds.includes(rec.productId)}
-                    onView={setDetailId}
-                    onToggleSave={toggleSave}
                     badges={activeMeta?.badges}
                   />
                 ))}
@@ -453,9 +415,7 @@ export default function ShopPage() {
           )}
 
           {/* Plan */}
-          {plan && (
-            <PlanView plan={plan} savedIds={savedIds} onView={setDetailId} onToggleSave={toggleSave} />
-          )}
+          {plan && <PlanView plan={plan} onView={setDetailId} />}
 
           {/* Refinement chips */}
           {activeMeta && (picks.length > 0 || plan) && (

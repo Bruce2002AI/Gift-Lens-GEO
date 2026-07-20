@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Bookmark,
   ImagePlus,
   Link2,
   Loader2,
@@ -11,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import type { GiftIntent } from "@/lib/ai/schemas";
-import type { TraceEvent, NormalizedProduct } from "@/lib/catalog/types";
+import type { TraceEvent } from "@/lib/catalog/types";
 import type { ConciergeResponse, GiftRecommendation, LinkCheckResponse } from "@/lib/gift/types";
 import { formatMinorRange } from "@/lib/gift/currency";
 import { RecommendationCard } from "@/components/gift/RecommendationCard";
@@ -52,7 +51,6 @@ const REFINEMENT_CHIPS = [
   "Different category",
 ];
 
-const SAVED_KEY = "giftlens.saved";
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 interface ChatMessage {
@@ -82,10 +80,6 @@ export default function GiftPage() {
   const [clarificationCount, setClarificationCount] = useState(0);
   const [image, setImage] = useState<PendingImage | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [savedOpen, setSavedOpen] = useState(false);
-  const [savedProducts, setSavedProducts] = useState<NormalizedProduct[] | null>(null);
-  const [savedLoading, setSavedLoading] = useState(false);
   const [linkResult, setLinkResult] = useState<LinkCheckResponse | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -101,24 +95,6 @@ export default function GiftPage() {
   });
 
   useEffect(() => {
-    // Deferred so hydration completes before saved state lands (and to keep
-    // the effect body free of synchronous setState).
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      try {
-        const raw = localStorage.getItem(SAVED_KEY);
-        if (raw) setSavedIds(JSON.parse(raw));
-      } catch {
-        /* corrupted storage — start fresh */
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, loading]);
 
@@ -130,20 +106,6 @@ export default function GiftPage() {
     );
     return () => clearInterval(timer);
   }, [loading]);
-
-  const toggleSave = useCallback((productId: string) => {
-    setSavedIds((prev) => {
-      const next = prev.includes(productId)
-        ? prev.filter((id) => id !== productId)
-        : [...prev, productId];
-      try {
-        localStorage.setItem(SAVED_KEY, JSON.stringify(next));
-      } catch {
-        /* storage full/blocked — ignore */
-      }
-      return next;
-    });
-  }, []);
 
   const appendTrace = useCallback((events: TraceEvent[]) => {
     setTrace((prev) => [...prev, ...events]);
@@ -331,30 +293,6 @@ export default function GiftPage() {
     reader.readAsDataURL(file);
   };
 
-  const openSaved = async () => {
-    setSavedOpen(true);
-    if (savedIds.length === 0) {
-      setSavedProducts([]);
-      return;
-    }
-    setSavedLoading(true);
-    try {
-      // Always re-resolve saved ids — never trust an old cached price.
-      const res = await fetch("/api/catalog/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: savedIds, country: intent?.destination.country }),
-      });
-      const json = await res.json();
-      setSavedProducts(json.ok ? (json.products as NormalizedProduct[]) : []);
-      if (json.trace) appendTrace(json.trace);
-    } catch {
-      setSavedProducts([]);
-    } finally {
-      setSavedLoading(false);
-    }
-  };
-
   const reset = () => {
     setMessages([]);
     setIntent(null);
@@ -387,10 +325,6 @@ export default function GiftPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={openSaved} className="btn-secondary !py-2 text-sm">
-            <Bookmark size={15} aria-hidden />
-            Saved ({savedIds.length})
-          </button>
           {messages.length > 0 && (
             <button type="button" onClick={reset} className="btn-secondary !py-2 text-sm">
               <RotateCcw size={15} aria-hidden />
@@ -632,9 +566,6 @@ export default function GiftPage() {
                       <RecommendationCard
                         key={rec.productId}
                         rec={rec}
-                        saved={savedIds.includes(rec.productId)}
-                        onView={setDetailId}
-                        onToggleSave={toggleSave}
                       />
                     ))}
                   </div>
@@ -649,9 +580,6 @@ export default function GiftPage() {
                       <RecommendationCard
                         key={rec.productId}
                         rec={rec}
-                        saved={savedIds.includes(rec.productId)}
-                        onView={setDetailId}
-                        onToggleSave={toggleSave}
                       />
                     ))}
                   </div>
@@ -716,19 +644,6 @@ export default function GiftPage() {
         />
       )}
 
-      {savedOpen && (
-        <SavedDrawer
-          loading={savedLoading}
-          products={savedProducts}
-          savedIds={savedIds}
-          onClose={() => setSavedOpen(false)}
-          onView={(id) => {
-            setSavedOpen(false);
-            setDetailId(id);
-          }}
-          onRemove={toggleSave}
-        />
-      )}
     </div>
   );
 }
@@ -860,101 +775,3 @@ function LinkVerdict({
   );
 }
 
-function SavedDrawer({
-  loading,
-  products,
-  savedIds,
-  onClose,
-  onView,
-  onRemove,
-}: {
-  loading: boolean;
-  products: NormalizedProduct[] | null;
-  savedIds: string[];
-  onClose: () => void;
-  onView: (id: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end bg-ink/40"
-      role="presentation"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Saved products"
-        className="flex h-full w-full max-w-md flex-col bg-white shadow-(--shadow-lift)"
-      >
-        <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h2 className="font-(family-name:--font-display) text-lg font-semibold">
-            Saved products
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close saved products"
-            className="rounded-full p-2 text-ink-soft hover:bg-sand"
-          >
-            <X size={18} aria-hidden />
-          </button>
-        </div>
-        <p className="border-b border-line bg-cream-deep/50 px-5 py-2 text-xs text-ink-soft">
-          Prices and availability re-checked via lookup_catalog on open — never
-          from an old browser cache.
-        </p>
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading && (
-            <p className="flex items-center gap-2 text-sm text-ink-soft" role="status">
-              <Loader2 size={14} className="animate-spin" aria-hidden />
-              Refreshing saved products…
-            </p>
-          )}
-          {!loading && (products?.length ?? 0) === 0 && (
-            <p className="text-sm text-ink-soft">
-              {savedIds.length === 0
-                ? "Nothing saved yet — tap the bookmark on any recommendation."
-                : "Saved identifiers could not be resolved right now."}
-            </p>
-          )}
-          <ul className="space-y-3">
-            {products?.map((p) => (
-              <li key={p.id} className="card flex gap-3 p-3">
-                <ProductImage
-                  src={p.images[0]?.url}
-                  alt={p.images[0]?.altText ?? p.title}
-                  className="h-16 w-16 shrink-0 rounded-lg"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 text-sm font-medium leading-snug">{p.title}</p>
-                  <p className="text-sm text-ink-soft">
-                    {formatMinorRange(p.priceRange.minMinor, p.priceRange.maxMinor, p.priceRange.currency)}
-                  </p>
-                  <div className="mt-1 flex gap-3 text-xs">
-                    <button type="button" className="font-medium text-plum" onClick={() => onView(p.id)}>
-                      View
-                    </button>
-                    <button
-                      type="button"
-                      className="text-ink-soft hover:text-danger"
-                      onClick={() => onRemove(p.id)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-}
