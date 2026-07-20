@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Heart, ShoppingBag, Sparkles } from "lucide-react";
+import { Heart, ShoppingBag, ShoppingCart, Sparkles } from "lucide-react";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { useWishlist } from "@/components/wishlist/WishlistProvider";
+import { useShortlist } from "@/components/shortlist/ShortlistProvider";
 
 const LINKS = [
   { href: "/shop", label: "Shop" },
@@ -17,6 +18,7 @@ export function NavBar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
   const { count } = useWishlist();
+  const { count: shortlistCount, openDrawer } = useShortlist();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-cream/90 backdrop-blur">
       <nav
@@ -54,6 +56,20 @@ export function NavBar() {
             <Sparkles size={14} aria-hidden />
             Start shopping
           </Link>
+
+          <button
+            type="button"
+            onClick={openDrawer}
+            aria-label={`Shortlist${shortlistCount > 0 ? ` (${shortlistCount} items)` : ""}`}
+            className="relative ml-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
+          >
+            <ShoppingCart size={18} aria-hidden />
+            {shortlistCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-plum px-1 text-[10px] font-semibold text-white">
+                {shortlistCount > 99 ? "99+" : shortlistCount}
+              </span>
+            )}
+          </button>
 
           {status === "authenticated" ? (
             <>

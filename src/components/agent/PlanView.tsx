@@ -1,10 +1,11 @@
 "use client";
 
-import { ExternalLink, Eye, Heart, Star } from "lucide-react";
+import { ExternalLink, Eye, Heart, ShoppingCart, Star } from "lucide-react";
 import type { PlanResult, Pick } from "@/lib/modes/types";
 import { formatMinorRange } from "@/lib/gift/currency";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { useWishlist } from "@/components/wishlist/WishlistProvider";
+import { useShortlist } from "@/components/shortlist/ShortlistProvider";
 import { snapshotFromProduct } from "@/lib/wishlist/snapshot";
 
 /** Renders a multi-component plan/bundle: grouped components, each with a primary + alternatives, and a running total. */
@@ -107,7 +108,9 @@ function PlanProductRow({
   onView: (productId: string) => void;
 }) {
   const { isWishlisted, toggle } = useWishlist();
+  const { isShortlisted, toggle: toggleShortlist } = useShortlist();
   const saved = isWishlisted(pick.product.id, pick.source);
+  const inShortlist = isShortlisted(pick.product.id, pick.source);
   const p = pick.product;
   const variant =
     p.variants.find((v) => v.id === pick.variantId) ??
@@ -160,6 +163,15 @@ function PlanProductRow({
           >
             <Heart size={12} aria-hidden className={saved ? "fill-plum text-plum" : ""} />
             {saved ? "Saved" : "Save"}
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-ink-soft hover:text-plum"
+            aria-pressed={inShortlist}
+            onClick={() => toggleShortlist(snapshotFromProduct(pick))}
+          >
+            <ShoppingCart size={12} aria-hidden className={inShortlist ? "text-plum" : ""} />
+            {inShortlist ? "Shortlisted" : "Shortlist"}
           </button>
           {buyUrl && available && (
             <a href={buyUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-plum">

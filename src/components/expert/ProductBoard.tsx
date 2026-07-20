@@ -6,6 +6,7 @@ import type { VerifiedBoardCategory, VerifiedBoardItem } from "@/lib/agent/types
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { formatMinor } from "@/lib/gift/currency";
 import { WishlistButton } from "@/components/wishlist/WishlistButton";
+import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
 import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
 
 /**
@@ -208,6 +209,10 @@ function BoardCard({
         <WishlistButton
           input={snapshotFromBoardItem(item)}
           className="absolute right-2 top-2 z-10 !h-8 !w-8"
+        />
+        <ShortlistButton
+          item={snapshotFromBoardItem(item)}
+          className="absolute right-2 top-11 z-10 !h-8 !w-8"
         />
       </div>
 

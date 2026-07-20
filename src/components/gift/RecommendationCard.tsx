@@ -13,6 +13,7 @@ import type { ModeBadge } from "@/lib/modes/types";
 import { formatMinorRange } from "@/lib/gift/currency";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { WishlistButton } from "@/components/wishlist/WishlistButton";
+import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
 import { snapshotFromProduct } from "@/lib/wishlist/snapshot";
 
 const ROLE_META = {
@@ -98,6 +99,10 @@ export function RecommendationCard({
         <WishlistButton
           input={snapshotFromProduct(rec)}
           className="absolute right-3 top-3 z-10"
+        />
+        <ShortlistButton
+          item={snapshotFromProduct(rec)}
+          className="absolute right-3 top-14 z-10"
         />
       </div>
 
