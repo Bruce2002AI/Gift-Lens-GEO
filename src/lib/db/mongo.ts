@@ -30,6 +30,25 @@ export interface OtpDoc {
   createdAt: Date;
 }
 
+export interface WishlistDoc {
+  _id?: unknown;
+  /** Owner — the stringified Mongo user _id from session.user.id. */
+  userId: string;
+  productId: string;
+  source: "live" | "mock";
+  title: string;
+  imageUrl: string | null;
+  url: string | null;
+  priceMinor: number | null;
+  priceMaxMinor: number | null;
+  currency: string | null;
+  /** Store / seller / merchant name. */
+  brand: string | null;
+  rating: { value: number | null; scaleMax: number | null; count: number | null } | null;
+  available: boolean | null;
+  createdAt: Date;
+}
+
 interface MongoState {
   client: MongoClient;
   indexesEnsured: boolean;
@@ -78,6 +97,10 @@ async function ensureIndexes(db: Db): Promise<void> {
     db
       .collection<OtpDoc>("otps")
       .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    // One wishlist entry per user + product + source.
+    db
+      .collection<WishlistDoc>("wishlists")
+      .createIndex({ userId: 1, productId: 1, source: 1 }, { unique: true }),
   ]);
 }
 
@@ -87,4 +110,8 @@ export async function getUsers(): Promise<Collection<UserDoc>> {
 
 export async function getOtps(): Promise<Collection<OtpDoc>> {
   return (await getDb()).collection<OtpDoc>("otps");
+}
+
+export async function getWishlist(): Promise<Collection<WishlistDoc>> {
+  return (await getDb()).collection<WishlistDoc>("wishlists");
 }

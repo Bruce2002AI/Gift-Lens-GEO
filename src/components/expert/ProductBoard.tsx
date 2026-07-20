@@ -5,6 +5,8 @@ import { ChevronLeft, ChevronRight, ExternalLink, Sparkles } from "lucide-react"
 import type { VerifiedBoardCategory, VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { formatMinor } from "@/lib/gift/currency";
+import { WishlistButton } from "@/components/wishlist/WishlistButton";
+import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
 
 /**
  * Slide width for a board card and the gap between slides. These mirror the
@@ -198,11 +200,15 @@ function BoardCard({
         {item.source === "mock" && (
           <span
             title="Demo catalog data — not a live listing"
-            className="absolute right-2 top-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+            className="absolute bottom-2 left-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
           >
             Demo data
           </span>
         )}
+        <WishlistButton
+          input={snapshotFromBoardItem(item)}
+          className="absolute right-2 top-2 z-10 !h-8 !w-8"
+        />
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5 p-2.5">

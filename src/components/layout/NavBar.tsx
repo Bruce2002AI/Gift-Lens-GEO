@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ShoppingBag, Sparkles } from "lucide-react";
+import { Heart, ShoppingBag, Sparkles } from "lucide-react";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { useWishlist } from "@/components/wishlist/WishlistProvider";
 
 const LINKS = [
   { href: "/shop", label: "Shop" },
@@ -15,6 +16,7 @@ const LINKS = [
 export function NavBar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
+  const { count } = useWishlist();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-cream/90 backdrop-blur">
       <nav
@@ -54,7 +56,26 @@ export function NavBar() {
           </Link>
 
           {status === "authenticated" ? (
-            <UserMenu name={session.user?.name} email={session.user?.email} />
+            <>
+              <Link
+                href="/wishlist"
+                aria-label={`Wishlist${count > 0 ? ` (${count} saved)` : ""}`}
+                aria-current={pathname === "/wishlist" ? "page" : undefined}
+                className="relative ml-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
+              >
+                <Heart
+                  size={18}
+                  aria-hidden
+                  className={pathname === "/wishlist" ? "fill-plum text-plum" : ""}
+                />
+                {count > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-plum px-1 text-[10px] font-semibold text-white">
+                    {count > 99 ? "99+" : count}
+                  </span>
+                )}
+              </Link>
+              <UserMenu name={session.user?.name} email={session.user?.email} />
+            </>
           ) : (
             <Link
               href="/login"
