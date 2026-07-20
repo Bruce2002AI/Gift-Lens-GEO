@@ -61,7 +61,7 @@ export function NavBar() {
             type="button"
             onClick={openDrawer}
             aria-label={`Shortlist${shortlistCount > 0 ? ` (${shortlistCount} items)` : ""}`}
-            className="relative ml-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
+            className="relative ml-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
           >
             <ShoppingCart size={18} aria-hidden />
             {shortlistCount > 0 && (
@@ -77,13 +77,9 @@ export function NavBar() {
                 href="/wishlist"
                 aria-label={`Wishlist${count > 0 ? ` (${count} saved)` : ""}`}
                 aria-current={pathname === "/wishlist" ? "page" : undefined}
-                className="relative ml-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
+                className="relative ml-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum"
               >
-                <Heart
-                  size={18}
-                  aria-hidden
-                  className={pathname === "/wishlist" ? "fill-plum text-plum" : ""}
-                />
+                <Heart size={18} aria-hidden />
                 {count > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-plum px-1 text-[10px] font-semibold text-white">
                     {count > 99 ? "99+" : count}

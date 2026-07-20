@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import {
+  ChevronDown,
   HeartHandshake,
   ImagePlus,
   Info,
-  Loader2,
   PackageSearch,
   Search,
   Send,
@@ -121,6 +121,46 @@ async function readErrorMessage(res: Response): Promise<string> {
     // Not JSON (or already consumed) — fall through to the status message.
   }
   return fallback;
+}
+
+/** Three bouncing dots — a livelier "the expert is working" than static text. */
+function ThinkingDots({ label = "thinking" }: { label?: string }) {
+  return (
+    <span className="inline-flex items-center gap-1" role="status" aria-label={`${label}…`}>
+      <span className="text-ink-soft">{label}</span>
+      <span className="ml-0.5 flex gap-0.5" aria-hidden>
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="h-1 w-1 rounded-full bg-plum"
+            style={{ animation: "dot-bounce 1.2s infinite", animationDelay: `${i * 0.16}s` }}
+          />
+        ))}
+      </span>
+    </span>
+  );
+}
+
+/** Shimmer placeholders shown in the results grid while the first turn streams. */
+function ResultsSkeleton() {
+  return (
+    <section aria-hidden className="space-y-3">
+      <div className="h-4 w-32 rounded skeleton" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="overflow-hidden rounded-xl border border-line bg-white">
+            <div className="aspect-square w-full skeleton" />
+            <div className="space-y-2 p-2.5">
+              <div className="h-2.5 w-2/3 rounded skeleton" />
+              <div className="h-3 w-full rounded skeleton" />
+              <div className="h-3 w-1/3 rounded skeleton" />
+              <div className="h-8 w-full rounded-lg skeleton" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export default function ExpertShopPage() {
@@ -596,14 +636,17 @@ export default function ExpertShopPage() {
           </button>
         </div>
       )}
-      <div className="flex items-end gap-2">
+
+      {/* One unified input surface: the textarea and its actions share a single
+          rounded container that lifts and highlights when focused. */}
+      <div className="rounded-2xl border border-line bg-white px-3 pb-2 pt-2.5 shadow-(--shadow-card) transition-colors focus-within:border-plum focus-within:ring-2 focus-within:ring-plum/15">
         <label htmlFor="expert-input" className="sr-only">
           Describe what you need
         </label>
         <textarea
           id="expert-input"
           ref={inputRef}
-          rows={2}
+          rows={1}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -613,27 +656,34 @@ export default function ExpertShopPage() {
             }
           }}
           placeholder={lens ? MODE_META[lens].examplePrompt : "e.g. A retirement gift for my dad…"}
-          className="field-input min-h-[52px] flex-1 resize-none"
+          className="block max-h-[140px] min-h-[24px] w-full resize-none bg-transparent text-sm leading-relaxed text-ink placeholder:text-ink-soft/50 focus:outline-none"
         />
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
-        <button
-          type="button"
-          aria-label="Attach a photo"
-          title="Attach a photo — the catalog matches visually similar items"
-          onClick={() => fileRef.current?.click()}
-          className="btn-secondary !px-3 !py-3"
-        >
-          <ImagePlus size={16} aria-hidden />
-        </button>
-        <button
-          type="submit"
-          disabled={!input.trim()}
-          aria-label={streaming ? "Interrupt and send" : "Send"}
-          title={streaming ? "Sends now — the expert will adjust mid-thought" : undefined}
-          className="btn-primary !px-3 !py-3"
-        >
-          <Send size={16} aria-hidden />
-        </button>
+        <div className="mt-2 flex items-center justify-between">
+          <button
+            type="button"
+            aria-label="Attach a photo"
+            title="Attach a photo — the catalog matches visually similar items"
+            onClick={() => fileRef.current?.click()}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-sand hover:text-plum active:scale-90"
+          >
+            <ImagePlus size={17} aria-hidden />
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="hidden text-[11px] text-ink-soft/70 sm:inline">
+              {input.trim() ? "Enter to send · Shift+Enter for a new line" : ""}
+            </span>
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              aria-label={streaming ? "Interrupt and send" : "Send"}
+              title={streaming ? "Sends now — the expert will adjust mid-thought" : undefined}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-plum text-white transition-all hover:bg-plum-dark active:scale-90 disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft/50"
+            >
+              <Send size={16} aria-hidden />
+            </button>
+          </div>
+        </div>
       </div>
     </form>
   );
@@ -644,15 +694,20 @@ export default function ExpertShopPage() {
   // ---------------------------------------------------------------------------
   if (!hasStarted) {
     return (
-      <div className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-2xl flex-col justify-center px-4 py-10 sm:px-6">
-        <header className="mb-6 text-center">
+      <div className="relative mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-2xl flex-col justify-center px-4 py-10 sm:px-6">
+        {/* Soft warm glow behind the composer so the empty state feels inviting. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-72 max-w-lg rounded-full bg-plum/10 blur-3xl"
+        />
+        <header className="mb-6 animate-rise text-center">
           <h1 className="font-(family-name:--font-display) text-4xl font-semibold">ShopLens</h1>
           <p className="mx-auto mt-2 max-w-md text-ink-soft">
             Describe what you need — the right expert shows its work and finds live, buyable products.
           </p>
         </header>
 
-        <div className="card p-4">{composer}</div>
+        <div className="animate-rise">{composer}</div>
 
         <div className="mt-5">{renderLensPicker(false)}</div>
 
@@ -694,7 +749,7 @@ export default function ExpertShopPage() {
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         {/* Chat rail */}
         <section aria-label="Conversation" className="min-w-0">
-          <div className="card flex flex-col p-4 xl:sticky xl:top-[4.5rem] xl:h-[calc(100vh-6rem)]">
+          <div className="card flex max-h-[65vh] flex-col p-4 xl:sticky xl:top-[4.5rem] xl:h-[calc(100vh-6rem)] xl:max-h-none">
             <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-3">
               <h1 className="font-(family-name:--font-display) text-lg font-semibold">ShopLens</h1>
               {lens && (
@@ -704,10 +759,10 @@ export default function ExpertShopPage() {
 
             <div className="mb-3">{renderLensPicker(true)}</div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1" aria-live="polite">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 scroll-fade" aria-live="polite">
               {blocks.map((block) =>
                 block.kind === "traces" ? (
-                  <div key={block.key} className="flex flex-wrap items-center gap-1.5 pl-1">
+                  <div key={block.key} className="animate-rise flex flex-wrap items-center gap-1.5 pl-1">
                     {block.traces.map((t) => {
                       const Icon = TRACE_ICONS[t.trace.kind];
                       return (
@@ -727,55 +782,66 @@ export default function ExpertShopPage() {
                     })}
                   </div>
                 ) : (
-                  <div key={block.key}>{renderItem(block.item)}</div>
+                  <div key={block.key} className="animate-rise">
+                    {renderItem(block.item)}
+                  </div>
                 ),
               )}
 
               {streaming && (
-                <div className="flex items-center gap-2 pl-1 text-sm text-ink-soft" role="status">
-                  <Loader2 size={14} className="animate-spin" aria-hidden />
-                  <span>thinking…</span>
+                <div className="pl-1 text-sm">
+                  <ThinkingDots />
                 </div>
               )}
               <div ref={endRef} />
             </div>
 
-            <div className="mt-3 border-t border-line pt-3">{composer}</div>
+            <div className="mt-3">{composer}</div>
           </div>
         </section>
 
         {/* Results page */}
         <section aria-label="Products" className="min-w-0 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-(family-name:--font-display) text-xl font-semibold">
-              {totalItems > 0 ? (
-                <>
-                  {totalItems} product{totalItems === 1 ? "" : "s"}
-                  <span className="ml-2 text-sm font-normal text-ink-soft">
-                    across {board.length} categor{board.length === 1 ? "y" : "ies"}
+          {/* Toolbar — count, sort, and the derived filter chips read as one bar. */}
+          <div className="space-y-3 border-b border-line pb-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-(family-name:--font-display) text-xl font-semibold">
+                {totalItems > 0 ? (
+                  <>
+                    {totalItems} product{totalItems === 1 ? "" : "s"}
+                    <span className="ml-2 text-sm font-normal text-ink-soft">
+                      across {board.length} categor{board.length === 1 ? "y" : "ies"}
+                    </span>
+                  </>
+                ) : (
+                  "Finding products…"
+                )}
+              </h2>
+              {totalItems > 0 && (
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <span className="text-ink-soft">Sort</span>
+                  <span className="relative">
+                    <select
+                      value={sort}
+                      onChange={(e) => setSort(e.target.value as BoardSort)}
+                      className="cursor-pointer appearance-none rounded-full border border-line bg-white py-1.5 pl-3 pr-8 text-sm text-ink transition-colors hover:border-plum focus:border-plum focus:outline-none"
+                    >
+                      <option value="picks">Picks first</option>
+                      <option value="price-asc">Price: low to high</option>
+                      <option value="price-desc">Price: high to low</option>
+                    </select>
+                    <ChevronDown
+                      size={14}
+                      aria-hidden
+                      className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-soft"
+                    />
                   </span>
-                </>
-              ) : (
-                "Finding products…"
+                </label>
               )}
-            </h2>
-            {totalItems > 0 && (
-              <label className="inline-flex items-center gap-2 text-sm">
-                <span className="text-ink-soft">Sort</span>
-                <select
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value as BoardSort)}
-                  className="field-input !w-auto !py-1.5"
-                >
-                  <option value="picks">Picks first</option>
-                  <option value="price-asc">Price: low to high</option>
-                  <option value="price-desc">Price: high to low</option>
-                </select>
-              </label>
-            )}
-          </div>
+            </div>
 
-          <FilterBar view={ledger} busy={streaming} onRefine={(message) => sendMessage(message)} />
+            <FilterBar view={ledger} busy={streaming} onRefine={(message) => sendMessage(message)} />
+          </div>
 
           <PortraitPanel
             lens={lens}
@@ -795,14 +861,14 @@ export default function ExpertShopPage() {
           />
 
           {board.length === 0 ? (
-            <div className="card flex items-center gap-3 p-6 text-sm text-ink-soft">
-              {streaming && <Loader2 size={16} className="animate-spin text-plum" aria-hidden />}
-              <p>
-                {streaming
-                  ? "Searching the catalog — products will appear here as the expert verifies them."
-                  : "Everything the expert finds lands here — grouped by category, with why each one made the list."}
-              </p>
-            </div>
+            streaming ? (
+              <ResultsSkeleton />
+            ) : (
+              <div className="card p-6 text-sm leading-relaxed text-ink-soft">
+                Everything the expert finds lands here — grouped by category, with why each one made
+                the list.
+              </div>
+            )
           ) : (
             <ProductBoard
               board={board}
