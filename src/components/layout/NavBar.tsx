@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { ShoppingBag, Sparkles } from "lucide-react";
+import { UserMenu } from "@/components/auth/UserMenu";
 
 const LINKS = [
   { href: "/shop", label: "Shop" },
@@ -12,6 +14,7 @@ const LINKS = [
 
 export function NavBar() {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-cream/90 backdrop-blur">
       <nav
@@ -49,6 +52,17 @@ export function NavBar() {
             <Sparkles size={14} aria-hidden />
             Start shopping
           </Link>
+
+          {status === "authenticated" ? (
+            <UserMenu name={session.user?.name} email={session.user?.email} />
+          ) : (
+            <Link
+              href="/login"
+              className="ml-1 rounded-full px-3 py-1.5 text-sm font-medium text-ink-soft transition-colors hover:bg-sand hover:text-ink sm:px-4"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       </nav>
     </header>
