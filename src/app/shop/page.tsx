@@ -27,9 +27,10 @@ import {
 import { MODE_META } from "@/lib/modes/meta";
 import { modeIcon } from "@/components/agent/mode-icons";
 import { ProductImage } from "@/components/catalog/ProductImage";
+import { FilterBar } from "@/components/expert/FilterBar";
 import { PortraitPanel } from "@/components/expert/PortraitPanel";
 import { PresentationView } from "@/components/expert/PresentationView";
-import { ProductBoard } from "@/components/expert/ProductBoard";
+import { ProductBoard, type BoardSort } from "@/components/expert/ProductBoard";
 import { RichText } from "@/components/expert/RichText";
 
 // ---------------------------------------------------------------------------
@@ -132,6 +133,7 @@ export default function ExpertShopPage() {
   const [streaming, setStreaming] = useState(false);
   const [input, setInput] = useState("");
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string; name: string } | null>(null);
+  const [sort, setSort] = useState<BoardSort>("picks");
 
   const idRef = useRef(0);
   const autoCollapsedRef = useRef(false);
@@ -143,6 +145,14 @@ export default function ExpertShopPage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [feed, streaming]);
+
+  /** Grow the composer to fit its text (up to a cap) instead of scrolling it. */
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [input]);
 
   useEffect(() => {
     return () => abortRef.current?.abort();
@@ -475,6 +485,7 @@ export default function ExpertShopPage() {
             onPrefill={prefillComposer}
             onMoreLike={handleMoreLike}
             onSend={(text) => sendMessage(text)}
+            compact
           />
         );
       case "limitation":
@@ -516,81 +527,184 @@ export default function ExpertShopPage() {
     }
   };
 
-  return (
-    <div className="mx-auto w-full max-w-[1500px] px-4 py-8 sm:px-6">
-      <header className="mb-5">
-        <h1 className="font-(family-name:--font-display) text-3xl font-semibold">ShopLens</h1>
-        <p className="mt-1 text-ink-soft">
-          {"Four experts, one conversation — it shows its work, and you can correct anything."}
-        </p>
-      </header>
+  const hasStarted = feed.length > 0;
+  const totalItems = board.reduce((n, category) => n + category.items.length, 0);
 
-      {/* Lens picker */}
-      <div className="mb-6 flex flex-wrap items-center gap-2" aria-label="Choose a lens">
-        {EXPERT_LENS_IDS.map((id) => {
-          const meta = MODE_META[id];
-          const Icon = modeIcon(meta.icon);
-          const active = lens === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setLens(id)}
-              title={meta.tagline}
-              aria-pressed={active}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition ${
-                active
-                  ? "border-plum bg-plum text-white"
-                  : "border-line bg-white text-ink hover:border-plum/40"
-              }`}
-            >
-              <Icon size={14} aria-hidden />
-              {meta.name}
-            </button>
-          );
-        })}
-        <Link href="/shop/classic" className="ml-1 text-sm font-medium text-plum hover:underline">
-          More lenses →
-        </Link>
+  const renderLensPicker = (compact: boolean) => (
+    <div
+      className={`flex flex-wrap items-center gap-1.5 ${compact ? "" : "justify-center"}`}
+      aria-label="Choose a lens"
+    >
+      {EXPERT_LENS_IDS.map((id) => {
+        const meta = MODE_META[id];
+        const Icon = modeIcon(meta.icon);
+        const active = lens === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setLens(id)}
+            title={meta.tagline}
+            aria-pressed={active}
+            className={`inline-flex items-center gap-1.5 rounded-full border transition ${
+              compact ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
+            } ${
+              active
+                ? "border-plum bg-plum text-white"
+                : "border-line bg-white text-ink hover:border-plum/40"
+            }`}
+          >
+            <Icon size={compact ? 12 : 14} aria-hidden />
+            {meta.name}
+          </button>
+        );
+      })}
+      <Link
+        href="/shop/classic"
+        className={`ml-1 font-medium text-plum hover:underline ${compact ? "text-xs" : "text-sm"}`}
+      >
+        More lenses →
+      </Link>
+    </div>
+  );
+
+  const composer = (
+    <form
+      className="space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submitComposer();
+      }}
+    >
+      {pendingImage && (
+        <div className="flex items-start gap-3 rounded-xl border border-line bg-sand/50 p-2">
+          <ProductImage
+            src={pendingImage.dataUrl}
+            alt={`Preview of ${pendingImage.name}`}
+            className="h-14 w-14 shrink-0 rounded-lg"
+          />
+          <p className="flex-1 text-xs leading-relaxed text-ink-soft">
+            {"I can't see photos on this setup — the catalog will match visually similar items."}
+          </p>
+          <button
+            type="button"
+            aria-label="Remove photo"
+            onClick={() => setPendingImage(null)}
+            className="rounded p-1 text-ink-soft hover:text-danger"
+          >
+            <X size={14} aria-hidden />
+          </button>
+        </div>
+      )}
+      <div className="flex items-end gap-2">
+        <label htmlFor="expert-input" className="sr-only">
+          Describe what you need
+        </label>
+        <textarea
+          id="expert-input"
+          ref={inputRef}
+          rows={2}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submitComposer();
+            }
+          }}
+          placeholder={lens ? MODE_META[lens].examplePrompt : "e.g. A retirement gift for my dad…"}
+          className="field-input min-h-[52px] flex-1 resize-none"
+        />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
+        <button
+          type="button"
+          aria-label="Attach a photo"
+          title="Attach a photo — the catalog matches visually similar items"
+          onClick={() => fileRef.current?.click()}
+          className="btn-secondary !px-3 !py-3"
+        >
+          <ImagePlus size={16} aria-hidden />
+        </button>
+        <button
+          type="submit"
+          disabled={!input.trim()}
+          aria-label={streaming ? "Interrupt and send" : "Send"}
+          title={streaming ? "Sends now — the expert will adjust mid-thought" : undefined}
+          className="btn-primary !px-3 !py-3"
+        >
+          <Send size={16} aria-hidden />
+        </button>
       </div>
+    </form>
+  );
 
-      {/* Chat left (~56%), product side panel right (~44%). Below 1280px the
-          panel stacks under the conversation — the page never scrolls sideways. */}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        {/* Chat */}
+  // ---------------------------------------------------------------------------
+  // Launch state — a focused hero: nothing but the composer until the shopper
+  // starts. The split results view only appears once there's a conversation.
+  // ---------------------------------------------------------------------------
+  if (!hasStarted) {
+    return (
+      <div className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-2xl flex-col justify-center px-4 py-10 sm:px-6">
+        <header className="mb-6 text-center">
+          <h1 className="font-(family-name:--font-display) text-4xl font-semibold">ShopLens</h1>
+          <p className="mx-auto mt-2 max-w-md text-ink-soft">
+            Describe what you need — the right expert shows its work and finds live, buyable products.
+          </p>
+        </header>
+
+        <div className="card p-4">{composer}</div>
+
+        <div className="mt-5">{renderLensPicker(false)}</div>
+
+        <div className="mt-8">
+          <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
+            Or try one
+          </p>
+          <div className="flex flex-col gap-2">
+            {EXPERT_LENS_IDS.map((id) => {
+              const meta = MODE_META[id];
+              const Icon = modeIcon(meta.icon);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className="chip w-full justify-start text-left"
+                  onClick={() => {
+                    setLens(id);
+                    sendMessage(meta.examplePrompt, { lens: id });
+                  }}
+                >
+                  <Icon size={14} aria-hidden className="shrink-0" />
+                  {meta.examplePrompt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Active state — chat rail (left) + product results page (right).
+  // Below 1280px the two columns stack, so the page never scrolls sideways.
+  // ---------------------------------------------------------------------------
+  return (
+    <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6">
+      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        {/* Chat rail */}
         <section aria-label="Conversation" className="min-w-0">
-          <div className="card flex min-h-[480px] flex-col p-4">
-            <div className="flex-1 space-y-3" aria-live="polite">
-              {feed.length === 0 && (
-                <div className="space-y-3 text-sm text-ink-soft">
-                  <p>
-                    {lens
-                      ? `${MODE_META[lens].name} — ${MODE_META[lens].tagline}`
-                      : "Pick a lens above, or just describe what you need — the right expert answers either way."}
-                  </p>
-                  <div className="flex flex-col items-start gap-2">
-                    {EXPERT_LENS_IDS.map((id) => {
-                      const meta = MODE_META[id];
-                      const Icon = modeIcon(meta.icon);
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          className="chip text-left"
-                          onClick={() => {
-                            setLens(id);
-                            sendMessage(meta.examplePrompt, { lens: id });
-                          }}
-                        >
-                          <Icon size={14} aria-hidden className="shrink-0" />
-                          {meta.examplePrompt}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+          <div className="card flex flex-col p-4 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)]">
+            <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-3">
+              <h1 className="font-(family-name:--font-display) text-lg font-semibold">ShopLens</h1>
+              {lens && (
+                <span className="text-xs font-medium text-ink-soft">{MODE_META[lens].name}</span>
               )}
+            </div>
 
+            <div className="mb-3">{renderLensPicker(true)}</div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1" aria-live="polite">
               {blocks.map((block) =>
                 block.kind === "traces" ? (
                   <div key={block.key} className="flex flex-wrap items-center gap-1.5 pl-1">
@@ -626,92 +740,43 @@ export default function ExpertShopPage() {
               <div ref={endRef} />
             </div>
 
-            {/* Composer */}
-            <form
-              className="mt-4 space-y-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                submitComposer();
-              }}
-            >
-              {pendingImage && (
-                <div className="flex items-start gap-3 rounded-xl border border-line bg-sand/50 p-2">
-                  <ProductImage
-                    src={pendingImage.dataUrl}
-                    alt={`Preview of ${pendingImage.name}`}
-                    className="h-14 w-14 shrink-0 rounded-lg"
-                  />
-                  <p className="flex-1 text-xs leading-relaxed text-ink-soft">
-                    {"I can't see photos on this setup — the catalog will match visually similar items."}
-                  </p>
-                  <button
-                    type="button"
-                    aria-label="Remove photo"
-                    onClick={() => setPendingImage(null)}
-                    className="rounded p-1 text-ink-soft hover:text-danger"
-                  >
-                    <X size={14} aria-hidden />
-                  </button>
-                </div>
-              )}
-              <div className="flex items-end gap-2">
-                <label htmlFor="expert-input" className="sr-only">
-                  Describe what you need
-                </label>
-                <textarea
-                  id="expert-input"
-                  ref={inputRef}
-                  rows={2}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      submitComposer();
-                    }
-                  }}
-                  placeholder={
-                    lens ? MODE_META[lens].examplePrompt : "e.g. A retirement gift for my dad…"
-                  }
-                  className="field-input min-h-[52px] flex-1 resize-none"
-                />
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={onPickImage}
-                />
-                <button
-                  type="button"
-                  aria-label="Attach a photo"
-                  title="Attach a photo — the catalog matches visually similar items"
-                  onClick={() => fileRef.current?.click()}
-                  className="btn-secondary !px-3 !py-3"
-                >
-                  <ImagePlus size={16} aria-hidden />
-                </button>
-                <button
-                  type="submit"
-                  disabled={!input.trim()}
-                  aria-label={streaming ? "Interrupt and send" : "Send"}
-                  title={streaming ? "Sends now — the expert will adjust mid-thought" : undefined}
-                  className="btn-primary !px-3 !py-3"
-                >
-                  <Send size={16} aria-hidden />
-                </button>
-              </div>
-            </form>
+            <div className="mt-3 border-t border-line pt-3">{composer}</div>
           </div>
         </section>
 
-        {/* Product side panel — the Living Portrait rides at the top of it,
-            collapsed once the board has products but always one click away. */}
-        <aside
-          aria-label="Products and Living Portrait"
-          tabIndex={0}
-          className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:self-start xl:overflow-y-auto xl:pr-1"
-        >
+        {/* Results page */}
+        <section aria-label="Products" className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-(family-name:--font-display) text-xl font-semibold">
+              {totalItems > 0 ? (
+                <>
+                  {totalItems} product{totalItems === 1 ? "" : "s"}
+                  <span className="ml-2 text-sm font-normal text-ink-soft">
+                    across {board.length} categor{board.length === 1 ? "y" : "ies"}
+                  </span>
+                </>
+              ) : (
+                "Finding products…"
+              )}
+            </h2>
+            {totalItems > 0 && (
+              <label className="inline-flex items-center gap-2 text-sm">
+                <span className="text-ink-soft">Sort</span>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as BoardSort)}
+                  className="field-input !w-auto !py-1.5"
+                >
+                  <option value="picks">Picks first</option>
+                  <option value="price-asc">Price: low to high</option>
+                  <option value="price-desc">Price: high to low</option>
+                </select>
+              </label>
+            )}
+          </div>
+
+          <FilterBar view={ledger} busy={streaming} onRefine={(message) => sendMessage(message)} />
+
           <PortraitPanel
             lens={lens}
             view={ledger}
@@ -729,8 +794,26 @@ export default function ExpertShopPage() {
             }
           />
 
-          <ProductBoard board={board} busy={streaming} onMoreLike={handleMoreLike} />
-        </aside>
+          {board.length === 0 ? (
+            <div className="card flex items-center gap-3 p-6 text-sm text-ink-soft">
+              {streaming && <Loader2 size={16} className="animate-spin text-plum" aria-hidden />}
+              <p>
+                {streaming
+                  ? "Searching the catalog — products will appear here as the expert verifies them."
+                  : "Everything the expert finds lands here — grouped by category, with why each one made the list."}
+              </p>
+            </div>
+          ) : (
+            <ProductBoard
+              board={board}
+              busy={streaming}
+              onMoreLike={handleMoreLike}
+              layout="grid"
+              sort={sort}
+              showHeading={false}
+            />
+          )}
+        </section>
       </div>
     </div>
   );

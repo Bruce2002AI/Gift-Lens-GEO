@@ -25,6 +25,7 @@ export function PresentationView({
   onPrefill,
   onMoreLike,
   onSend,
+  compact = false,
 }: {
   presentation: VerifiedPresentation;
   /** border-left accent class matching the active lens. */
@@ -40,6 +41,12 @@ export function PresentationView({
   onMoreLike: (productId: string) => void;
   /** Sends a message straight away (follow-up quick replies). */
   onSend: (text: string) => void;
+  /**
+   * Rail mode: the full product cards live in the results grid alongside this
+   * conversation, so here we keep only the agent's reasoning (prose, plan
+   * structure, compositions, total, follow-up) and drop the duplicated cards.
+   */
+  compact?: boolean;
 }) {
   const isPlan = presentation.layout === "plan";
   const itemCount = presentation.sections.reduce((n, s) => n + s.cards.length, 0);
@@ -101,32 +108,40 @@ export function PresentationView({
               section={section}
               total={presentation.sections.length}
               onMoreLike={onMoreLike}
+              compact={compact}
             />
           ))}
         </div>
       ) : (
-        presentation.sections.map((section, i) => (
-          <section key={i} className="space-y-3">
-            {section.title && (
-              <h3 className="font-(family-name:--font-display) text-lg font-semibold">
-                {section.title}
-              </h3>
-            )}
-            {section.intro && (
-              <p className="text-sm leading-relaxed text-ink-soft">{section.intro}</p>
-            )}
+        presentation.sections.map((section, i) => {
+          // In rail mode a cards-only section has nothing left to show once the
+          // duplicated cards are dropped — skip it rather than leave a gap.
+          if (compact && !section.title && !section.intro && section.steps.length === 0) {
+            return null;
+          }
+          return (
+            <section key={i} className="space-y-3">
+              {section.title && (
+                <h3 className="font-(family-name:--font-display) text-lg font-semibold">
+                  {section.title}
+                </h3>
+              )}
+              {section.intro && (
+                <p className="text-sm leading-relaxed text-ink-soft">{section.intro}</p>
+              )}
 
-            {section.steps.length > 0 && <StepList steps={section.steps} />}
+              {section.steps.length > 0 && <StepList steps={section.steps} />}
 
-            {section.cards.length > 0 && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {section.cards.map((card) => (
-                  <ExpertCard key={card.productId} card={card} onMoreLike={onMoreLike} />
-                ))}
-              </div>
-            )}
-          </section>
-        ))
+              {!compact && section.cards.length > 0 && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {section.cards.map((card) => (
+                    <ExpertCard key={card.productId} card={card} onMoreLike={onMoreLike} />
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })
       )}
 
       {presentation.leftOut.length > 0 && (
@@ -313,11 +328,13 @@ function PlanPart({
   index,
   total,
   onMoreLike,
+  compact = false,
 }: {
   section: VerifiedSection;
   index: number;
   total: number;
   onMoreLike: (productId: string) => void;
+  compact?: boolean;
 }) {
   return (
     <section
@@ -343,12 +360,18 @@ function PlanPart({
         </div>
       )}
 
-      {section.cards.length > 0 && (
+      {!compact && section.cards.length > 0 && (
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           {section.cards.map((card) => (
             <ExpertCard key={card.productId} card={card} onMoreLike={onMoreLike} />
           ))}
         </div>
+      )}
+
+      {compact && section.cards.length > 0 && (
+        <p className="mt-2 text-xs text-ink-soft">
+          {section.cards.length} option{section.cards.length === 1 ? "" : "s"} in the results →
+        </p>
       )}
     </section>
   );
