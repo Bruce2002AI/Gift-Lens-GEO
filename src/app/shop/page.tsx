@@ -694,7 +694,7 @@ export default function ExpertShopPage() {
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         {/* Chat rail */}
         <section aria-label="Conversation" className="min-w-0">
-          <div className="card flex flex-col p-4 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)]">
+          <div className="card flex flex-col p-4 xl:sticky xl:top-[4.5rem] xl:h-[calc(100vh-6rem)]">
             <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-3">
               <h1 className="font-(family-name:--font-display) text-lg font-semibold">ShopLens</h1>
               {lens && (
