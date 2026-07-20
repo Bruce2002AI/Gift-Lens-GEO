@@ -3,7 +3,6 @@
 import {
   Award,
   ExternalLink,
-  Eye,
   Sparkles,
   ShieldCheck,
   Star,
@@ -45,11 +44,9 @@ const ROLE_META = {
 
 export function RecommendationCard({
   rec,
-  onView,
   badges,
 }: {
   rec: GiftRecommendation;
-  onView: (productId: string) => void;
   /** Mode-supplied badge labels; falls back to the gift role labels. */
   badges?: ModeBadge[];
 }) {
@@ -68,6 +65,8 @@ export function RecommendationCard({
     p.variants[0];
   const buyUrl = variant?.checkoutUrl ?? variant?.url ?? variant?.seller?.url ?? p.url;
   const buyLabel = variant?.checkoutUrl ? "Continue to checkout" : "View on merchant";
+  // Prefer the product page (not checkout) for the image-click redirect.
+  const viewUrl = variant?.url ?? p.url ?? variant?.seller?.url ?? variant?.checkoutUrl ?? null;
   const available = p.variants.some((v) => v.available === true);
   const price = formatMinorRange(
     p.priceRange.minMinor,
@@ -78,19 +77,41 @@ export function RecommendationCard({
   return (
     <article className="card flex flex-col overflow-hidden">
       <div className="relative">
-        <ProductImage
-          src={p.images[0]?.url}
-          alt={p.images[0]?.altText ?? p.title}
-          className="h-44 w-full"
-        />
+        {viewUrl ? (
+          <a
+            href={viewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`View ${p.title} on the merchant site (opens in a new tab)`}
+            className="group block"
+          >
+            <ProductImage
+              src={p.images[0]?.url}
+              alt={p.images[0]?.altText ?? p.title}
+              className="h-44 w-full transition-transform duration-300 group-hover:scale-105"
+            />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/0 opacity-0 transition-all duration-200 group-hover:bg-ink/30 group-hover:opacity-100">
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/95 px-3 py-1 text-xs font-semibold text-ink shadow-(--shadow-card)">
+                <ExternalLink size={12} aria-hidden />
+                View product
+              </span>
+            </span>
+          </a>
+        ) : (
+          <ProductImage
+            src={p.images[0]?.url}
+            alt={p.images[0]?.altText ?? p.title}
+            className="h-44 w-full"
+          />
+        )}
         <span
-          className={`absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${meta.className}`}
+          className={`pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${meta.className}`}
         >
           <RoleIcon size={12} aria-hidden />
           {meta.label}
         </span>
         <span
-          className={`absolute bottom-3 left-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+          className={`pointer-events-none absolute bottom-3 left-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
             rec.source === "live" ? "bg-ok/90 text-white" : "bg-warn/90 text-white"
           }`}
         >
@@ -99,10 +120,6 @@ export function RecommendationCard({
         <WishlistButton
           input={snapshotFromProduct(rec)}
           className="absolute right-3 top-3 z-10"
-        />
-        <ShortlistButton
-          item={snapshotFromProduct(rec)}
-          className="absolute right-3 top-14 z-10"
         />
       </div>
 
@@ -180,14 +197,11 @@ export function RecommendationCard({
           </div>
           <p className="text-[11px] leading-relaxed text-ink-soft">{rec.logisticsMessage}</p>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => onView(p.id)}
+            <ShortlistButton
+              item={snapshotFromProduct(rec)}
+              labeled
               className="btn-secondary flex-1 !px-3 !py-2 text-sm"
-            >
-              <Eye size={14} aria-hidden />
-              Details
-            </button>
+            />
             {buyUrl && available && (
               <a
                 href={buyUrl}

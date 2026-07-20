@@ -394,7 +394,6 @@ export default function ShopPage() {
                   <RecommendationCard
                     key={rec.productId}
                     rec={rec}
-                    onView={setDetailId}
                     badges={activeMeta?.badges}
                   />
                 ))}

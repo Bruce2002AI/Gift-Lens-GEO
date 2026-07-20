@@ -566,7 +566,6 @@ export default function GiftPage() {
                       <RecommendationCard
                         key={rec.productId}
                         rec={rec}
-                        onView={setDetailId}
                       />
                     ))}
                   </div>
@@ -581,7 +580,6 @@ export default function GiftPage() {
                       <RecommendationCard
                         key={rec.productId}
                         rec={rec}
-                        onView={setDetailId}
                       />
                     ))}
                   </div>

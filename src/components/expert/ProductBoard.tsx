@@ -188,11 +188,33 @@ function BoardCard({
       }`}
     >
       <div className="relative">
-        <ProductImage src={item.imageUrl} alt={item.title} className="aspect-square w-full" />
+        {item.productUrl ? (
+          <a
+            href={item.productUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`View ${item.title} on the merchant site (opens in a new tab)`}
+            className="group block"
+          >
+            <ProductImage
+              src={item.imageUrl}
+              alt={item.title}
+              className="aspect-square w-full transition-transform duration-300 group-hover:scale-105"
+            />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/0 opacity-0 transition-all duration-200 group-hover:bg-ink/30 group-hover:opacity-100">
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-semibold text-ink shadow-(--shadow-card)">
+                <ExternalLink size={10} aria-hidden />
+                View
+              </span>
+            </span>
+          </a>
+        ) : (
+          <ProductImage src={item.imageUrl} alt={item.title} className="aspect-square w-full" />
+        )}
         {item.isPick && (
           <span
             title="Among the expert's top picks in this category"
-            className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[10px] font-semibold text-white"
+            className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[10px] font-semibold text-white"
           >
             <Sparkles size={10} aria-hidden />
             AI pick
@@ -201,7 +223,7 @@ function BoardCard({
         {item.source === "mock" && (
           <span
             title="Demo catalog data — not a live listing"
-            className="absolute bottom-2 left-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+            className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
           >
             Demo data
           </span>
@@ -209,10 +231,6 @@ function BoardCard({
         <WishlistButton
           input={snapshotFromBoardItem(item)}
           className="absolute right-2 top-2 z-10 !h-8 !w-8"
-        />
-        <ShortlistButton
-          item={snapshotFromBoardItem(item)}
-          className="absolute right-2 top-11 z-10 !h-8 !w-8"
         />
       </div>
 
@@ -248,29 +266,11 @@ function BoardCard({
             <Sparkles size={12} aria-hidden />
             Show Similar
           </button>
-          {item.productUrl ? (
-            <a
-              href={item.productUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`View ${item.title} on the merchant site (opens in a new tab)`}
-              className={ACTION_CLASS}
-            >
-              <ExternalLink size={12} aria-hidden />
-              View
-            </a>
-          ) : (
-            <button
-              type="button"
-              disabled
-              aria-label={`No merchant link available for ${item.title}`}
-              title="This listing has no merchant link"
-              className={ACTION_CLASS}
-            >
-              <ExternalLink size={12} aria-hidden />
-              View
-            </button>
-          )}
+          <ShortlistButton
+            item={snapshotFromBoardItem(item)}
+            labeled
+            className={ACTION_CLASS}
+          />
         </div>
       </div>
     </article>
