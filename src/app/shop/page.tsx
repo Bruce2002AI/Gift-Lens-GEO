@@ -1354,14 +1354,14 @@ export default function ExpertShopPage() {
         {/* One soft glow behind the hero — blue with a butter highlight. */}
         <div
           aria-hidden
-          className="pointer-events-none fixed left-1/2 top-[-240px] -z-10 h-[640px] w-[960px] -translate-x-1/2"
+          className="pointer-events-none fixed left-1/2 top-[-340px] -z-10 h-[1000px] w-[1560px] -translate-x-1/2"
           style={{
             background:
-              "radial-gradient(ellipse 58% 55% at 40% 40%, rgba(45,91,255,.08), transparent 65%), radial-gradient(ellipse 48% 50% at 66% 34%, rgba(255,216,77,.14), transparent 65%)",
+              "radial-gradient(ellipse 58% 55% at 40% 40%, rgba(45,91,255,.11), transparent 68%), radial-gradient(ellipse 48% 50% at 66% 34%, rgba(255,216,77,.20), transparent 68%)",
           }}
         />
 
-        <main className="relative z-[1] mx-auto max-w-[880px] px-6 pb-20 pt-11 text-center sm:pt-16">
+        <main className="relative z-[1] mx-auto max-w-[960px] px-6 pb-20 pt-11 text-center sm:pt-16">
           <h1 className="animate-rise font-(family-name:--font-display) text-[clamp(38px,6vw,58px)] font-semibold leading-[1.08] tracking-[-0.02em]">
             What are you
             <br />
