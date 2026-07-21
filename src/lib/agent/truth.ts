@@ -1,6 +1,7 @@
 import type { NormalizedProduct, NormalizedVariant } from "@/lib/catalog/types";
 import { checkHardConstraints, logisticsMessage } from "@/lib/gift/constraints";
 import { formatMinor } from "@/lib/gift/currency";
+import { productIdentityKey } from "./dedup";
 import { hasConsent, ledgerToBaseIntent, normalizeForMatch } from "./ledger";
 import { interpretationViolations, isSupplementCategory, lintOutbound } from "./safety";
 import type {
@@ -548,18 +549,26 @@ export function verifyPresentation(
   // board carries the agent's reasoning rather than quoted claims.
   const board: VerifiedBoardCategory[] = [];
   const boardSeen = new Set<string>();
+  // Content identities already shown — seeded with earlier turns' board so a
+  // multi-merchant relisting can't reappear as a "new" option across turns.
+  const boardSeenIdentity = new Set<string>(session.boardedIdentities);
   let boardUnverified = 0;
   for (const category of raw.board ?? []) {
     const items: VerifiedBoardItem[] = [];
     for (const [index, item] of category.items.entries()) {
       const resolvedId = resolveEvidenceId(session, item.productId);
       if (boardSeen.has(resolvedId)) continue; // no duplicate slots
+      const entry = session.evidence.get(resolvedId);
       // An item whose evidence fetch failed vanishes with an accounting note —
       // never silently (the shortlist the message describes must be the one shown).
-      if (!session.evidence.has(resolvedId)) {
+      if (!entry) {
         boardUnverified += 1;
         continue;
       }
+      // The catalog is multi-merchant: skip a relisting of something already on
+      // the board this turn or on an earlier one (same content identity).
+      const identity = productIdentityKey(entry.product);
+      if (boardSeenIdentity.has(identity)) continue;
       const verified = notarizeBoardItem(
         session,
         { productId: item.productId, insight: item.insight, tradeoff: item.tradeoff, isPick: index < 2 },
@@ -567,6 +576,7 @@ export function verifyPresentation(
       );
       if (!verified) continue;
       boardSeen.add(verified.productId);
+      boardSeenIdentity.add(identity);
       items.push(verified);
     }
     if (items.length > 0) {

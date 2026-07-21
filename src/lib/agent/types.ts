@@ -136,6 +136,13 @@ export interface AgentSession {
    */
   activeSubjectId: string;
   /**
+   * The turn the ACTIVE subject was activated on. Signals derived from the
+   * shopper's words (e.g. gender from pronouns) must count only messages from
+   * this turn onward — the transcript survives a subject switch, so an earlier
+   * person's "she loves…" must not leak into the current recipient's read.
+   */
+  subjectActivatedTurn: number;
+  /**
    * The shopper's known people (self excluded is fine — the UI prepends it),
    * cached so the prompt can list "profiles you can switch to" and the loop can
    * resolve a mid-chat name without a DB hit. Refreshed each turn.
@@ -172,6 +179,13 @@ export interface AgentSession {
    * twice with different framing reads as a glitch, not a suggestion.
    */
   boardedIds: Set<string>;
+  /**
+   * Content identities (title-normalized) of everything boarded this session.
+   * The catalog is multi-merchant, so the SAME product relisted by a second
+   * seller has a different id but the same identity — this stops that relisting
+   * from filling a new board slot across turns. See `productIdentityKey`.
+   */
+  boardedIdentities: Set<string>;
   /**
    * productId → the price cap the catalog itself applied when returning it.
    * Only these products may claim catalog-side budget screening (a foreign-

@@ -2,6 +2,7 @@ import "server-only";
 import type { TraceCollector } from "@/lib/catalog/trace";
 import type { NormalizedProduct } from "@/lib/catalog/types";
 import { formatMinor } from "@/lib/gift/currency";
+import { productIdentityKey } from "./dedup";
 import { ledgerToBaseIntent } from "./ledger";
 import {
   resolveProductId,
@@ -81,6 +82,47 @@ function priceDelta(
   return diff < 0
     ? { text: `${amount} less`, sign: -1 }
     : { text: `${amount} more`, sign: 1 };
+}
+
+/**
+ * Content identities already on screen — this turn's board plus every earlier
+ * turn's (`session.boardedIdentities`). The catalog is multi-merchant, so the
+ * code-side fills gate on identity, not just id, to keep a relisting of the same
+ * product from filling a fresh slot.
+ */
+function shownIdentities(
+  session: AgentSession,
+  presentation: VerifiedPresentation,
+): Set<string> {
+  const set = new Set<string>(session.boardedIdentities);
+  for (const cat of presentation.board) {
+    for (const it of cat.items) {
+      const product = session.evidence.get(resolveEvidenceId(session, it.productId))?.product;
+      if (product) set.add(productIdentityKey(product));
+    }
+  }
+  return set;
+}
+
+/**
+ * Whole-word token overlap between two titles. Once exact relistings are
+ * collapsed by identity, this keeps the auto-fill from stacking near-identical
+ * items ("… Pen Black" beside "… Pen Blue") — the shopper wants variety, not the
+ * same thing five ways. Brand-differentiated siblings ("Parker …"/"Lamy …")
+ * share only the generic nouns and stay comfortably under the threshold.
+ */
+function titleTokenSimilarity(a: string, b: string): number {
+  const ta = wordTokens(a);
+  const tb = wordTokens(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let overlap = 0;
+  for (const w of ta) if (tb.has(w)) overlap += 1;
+  return overlap / Math.min(ta.size, tb.size);
+}
+
+/** Near-identical (not merely same-category) to something already in the rail. */
+function nearDuplicateInCategory(title: string, items: VerifiedBoardItem[]): boolean {
+  return items.some((it) => titleTokenSimilarity(title, it.title) >= 0.8);
 }
 
 export interface InstantSimilarOutcome {
@@ -179,7 +221,11 @@ export async function runInstantSimilar(
   };
   if (aborted?.()) return { presented: false, observation: "" };
   emit({ type: "present", presentation });
-  for (const item of items) session.boardedIds.add(item.productId);
+  for (const item of items) {
+    session.boardedIds.add(item.productId);
+    const p = session.evidence.get(resolveEvidenceId(session, item.productId))?.product;
+    if (p) session.boardedIdentities.add(productIdentityKey(p));
+  }
   session.transcript.push({
     role: "assistant",
     content: `Showed ${items.length} catalog-similar matches for "${anchorTitle}" (instant similarity rail).`,
@@ -268,6 +314,7 @@ export async function topUpBoard(
     ...presentation.sections.flatMap((s) => s.cards.map((c) => c.productId)),
     ...session.boardedIds,
   ]);
+  const seenIdentity = shownIdentities(session, presentation);
   const intent = ledgerToBaseIntent(session.ledger);
   let added = 0;
 
@@ -298,7 +345,10 @@ export async function topUpBoard(
       if (category.items.length >= CATEGORY_TARGET) break;
       const entry = session.evidence.get(resolveEvidenceId(session, id));
       if (!entry) continue;
+      const identity = productIdentityKey(entry.product);
+      if (seenIdentity.has(identity)) continue; // a relisting of something already shown
       if (!fitsCategory(session, entry.product, category.name, existingIds)) continue;
+      if (nearDuplicateInCategory(entry.product.title, category.items)) continue;
       const delta = priceDelta(entry.product, top);
       const insight =
         delta.text != null
@@ -320,6 +370,7 @@ export async function topUpBoard(
       if (!item) continue;
       category.items.push(item);
       boardSeen.add(item.productId);
+      seenIdentity.add(identity);
       added += 1;
     }
   }
@@ -355,6 +406,7 @@ export async function ensureBoardBreadth(
     ...presentation.sections.flatMap((s) => s.cards.map((c) => c.productId)),
     ...session.boardedIds,
   ]);
+  const seenIdentity = shownIdentities(session, presentation);
   let total = presentation.board.reduce((n, c) => n + c.items.length, 0);
   if (total >= BOARD_TARGET) return 0;
 
@@ -396,6 +448,8 @@ export async function ensureBoardBreadth(
     const entry = session.evidence.get(resolveEvidenceId(session, id));
     if (!entry) continue;
     if (shown.has(entry.product.id)) continue;
+    const identity = productIdentityKey(entry.product);
+    if (seenIdentity.has(identity)) continue; // a relisting of something already shown
 
     // Prefer a category the item genuinely belongs to (with room); otherwise it
     // joins the honest catch-all rather than mislabel an existing rail.
@@ -409,6 +463,8 @@ export async function ensureBoardBreadth(
       catchAll ??= addCatchAll(presentation, catchAllName);
       target = catchAll;
     }
+    // Variety, not repetition: don't stack a near-identical item in the same rail.
+    if (nearDuplicateInCategory(entry.product.title, target.items)) continue;
 
     const delta = priceDelta(
       entry.product,
@@ -432,6 +488,7 @@ export async function ensureBoardBreadth(
     if (!item) continue;
     target.items.push(item);
     shown.add(item.productId);
+    seenIdentity.add(identity);
     total += 1;
     added += 1;
   }

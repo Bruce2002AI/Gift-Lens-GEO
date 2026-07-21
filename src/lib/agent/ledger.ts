@@ -31,6 +31,7 @@ export function newSession(id: string, lens: ExpertLensId): AgentSession {
     createdAtMs: Date.now(),
     userId: null,
     activeSubjectId: SELF_SUBJECT_ID,
+    subjectActivatedTurn: 0,
     knownSubjects: [],
     hydratedLenses: [],
     removedFactKeys: [],
@@ -54,6 +55,7 @@ export function newSession(id: string, lens: ExpertLensId): AgentSession {
     candidates: new Map(),
     searchHits: new Map(),
     boardedIds: new Set(),
+    boardedIdentities: new Set(),
     budgetScreenedCap: new Map(),
     uploadedImage: null,
     outfitRead: null,
@@ -80,6 +82,9 @@ export function newSession(id: string, lens: ExpertLensId): AgentSession {
 export function switchSubject(session: AgentSession, subjectId: string): boolean {
   if (session.activeSubjectId === subjectId) return false;
   session.activeSubjectId = subjectId;
+  // Read signals (gender from pronouns, etc.) must ignore the previous person's
+  // messages, which stay in the transcript across the switch.
+  session.subjectActivatedTurn = session.turn;
 
   session.ledger.facts = [];
   const c = session.ledger.constraints;
@@ -98,9 +103,46 @@ export function switchSubject(session: AgentSession, subjectId: string): boolean
   session.candidates.clear();
   session.searchHits.clear();
   session.boardedIds.clear();
+  session.boardedIdentities.clear();
   session.budgetScreenedCap.clear();
 
   return true;
+}
+
+/**
+ * The active subject's gender, when it can be known — the gift/style lenses need
+ * it because "men's shirt" and "women's shirt" are different products (fit,
+ * sizing, cut). Read first from an explicit ledger fact the model recorded
+ * (recipient.gender / pronouns / sex), then backstopped by counting gendered
+ * pronouns in the shopper's own messages. Null when genuinely unknown — a guess
+ * here would mislabel a real person, so we only return a value on clear signal.
+ */
+export function recipientGender(session: AgentSession): "woman" | "man" | null {
+  const womanWords = /\b(she|her|hers|woman|women|female|girl|lady|ladies|wife|girlfriend|mum|mom|mother|sister|daughter|aunt|niece|grandmother|granny)\b/gi;
+  const manWords = /\b(he|him|his|man|men|male|boy|guy|husband|boyfriend|dad|father|brother|son|uncle|nephew|grandfather|grandpa)\b/gi;
+
+  // 1) An explicit fact the model recorded wins — it's the most deliberate signal.
+  for (const f of session.ledger.facts) {
+    if (!/gender|\bsex\b|pronoun/i.test(f.key)) continue;
+    const v = String(f.value).toLowerCase();
+    if (/\b(female|woman|she|her)\b/.test(v)) return "woman";
+    if (/\b(male|man|he|him)\b/.test(v)) return "man";
+  }
+
+  // 2) Backstop: which gendered pronouns/relationships does the shopper use for
+  //    THIS subject? Scope to messages since the subject was activated — the
+  //    transcript survives a switch, so an earlier person's pronouns must not
+  //    count. Only decide when one side clearly dominates.
+  let woman = 0;
+  let man = 0;
+  for (const t of session.transcript) {
+    if (t.role !== "user" || t.turn < session.subjectActivatedTurn) continue;
+    woman += (t.content.match(womanWords) ?? []).length;
+    man += (t.content.match(manWords) ?? []).length;
+  }
+  if (woman >= 2 && woman > man * 2) return "woman";
+  if (man >= 2 && man > woman * 2) return "man";
+  return null;
 }
 
 /** Normalize for quote-in-transcript checks: lowercase, collapse whitespace, fold curly quotes. */

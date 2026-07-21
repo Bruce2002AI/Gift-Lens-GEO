@@ -124,6 +124,9 @@ export function forgetUserSessions(userId: string): number {
     // The person profiles are gone; drop the active pointer back to the owner
     // so the next turn can't persist under a subject that no longer exists.
     session.activeSubjectId = SELF_SUBJECT_ID;
+    // Re-pointing the active subject: read signals (gender from pronouns) must
+    // not count pre-reset messages about a person who no longer exists.
+    session.subjectActivatedTurn = session.turn;
     session.knownSubjects = [];
     cleared += 1;
   }

@@ -9,6 +9,7 @@ import {
   detectAndMergeCareFlags,
   ledgerView,
   mergeCareFlags,
+  recipientGender,
   recordConsent,
 } from "./ledger";
 import { fieldCatalogForPrompt } from "@/lib/personalization/schema";
@@ -16,6 +17,7 @@ import type { ProfileLens } from "@/lib/personalization/types";
 import { CHARTERS, SHARED_CONTRACT } from "./personas";
 import { careFlagDef, EDUCATIONAL_FRAMING, lintOutbound, sniffSupplementConsent } from "./safety";
 import { ensureBoardBreadth, runInstantSimilar, topUpBoard } from "./board";
+import { productIdentityKey } from "./dedup";
 import {
   runGetProducts,
   runSearches,
@@ -164,9 +166,26 @@ const INTEREST_KEY = /interest|hobb|likes?|loves?|enjoys?|favou?rite|passion|\bf
  * content words) already appears among the queries this session ran.
  */
 export function unsearchedInterestTerms(session: AgentSession): string[] {
-  const searched = [...session.searchHits.keys(), ...session.ledger.searchQueries]
-    .join(" ")
-    .toLowerCase();
+  // Whole-word tokens of every query this session ran. Token membership — NOT
+  // substring — so an interest like "cat" is not counted as searched merely
+  // because "deli-cat-e" appeared inside an earlier query.
+  const searchedTokens = new Set<string>();
+  for (const q of [...session.searchHits.keys(), ...session.ledger.searchQueries]) {
+    for (const w of q.toLowerCase().split(/[^a-z0-9]+/)) {
+      if (w.length >= 2) searchedTokens.add(w);
+    }
+  }
+  // Covered if some searched token equals the word or is a prefix/suffix stem of
+  // it (singular/plural-tolerant: "movie" ⇄ "movies"), the same tolerance the
+  // truth layer uses. Prefix source must be ≥4 chars so it stays meaningful.
+  const covered = (w: string): boolean => {
+    if (searchedTokens.has(w)) return true;
+    for (const h of searchedTokens) {
+      if (h.length >= 4 && (h.startsWith(w) || (w.length >= 4 && w.startsWith(h)))) return true;
+    }
+    return false;
+  };
+
   const terms: string[] = [];
   const seen = new Set<string>();
   for (const f of session.ledger.facts) {
@@ -178,15 +197,11 @@ export function unsearchedInterestTerms(session: AgentSession): string[] {
         .replace(/^(?:the|her|his|their|a|an)\s+/i, "");
       const norm = term.toLowerCase();
       if (term.length < 3 || seen.has(norm)) continue;
-      if (searched.includes(norm)) continue;
-      // Already covered if every content word of the term was searched —
-      // singular/plural-tolerant, so "movies" counts against a "movie" query.
-      const words = norm.split(/\s+/).filter((w) => w.length >= 4);
-      const covered = (w: string) => {
-        const singular = w.replace(/(?:es|s)$/, "");
-        return searched.includes(w) || (singular.length >= 4 && searched.includes(singular));
-      };
-      if (words.length > 0 && words.every(covered)) continue;
+      // Searched already if every content word of the term is covered. Fall back
+      // to the whole term when it has no ≥3-char word (e.g. "F1").
+      const words = norm.split(/\s+/).filter((w) => w.length >= 3);
+      const check = words.length > 0 ? words : [norm];
+      if (check.every(covered)) continue;
       seen.add(norm);
       terms.push(term);
     }
@@ -254,6 +269,18 @@ function renderState(
     lines.push(
       `OTHER PROFILES on file: ${names}. If the shopper starts talking about one of them (or a new person), just help — the system opens that person's profile automatically; you don't switch it yourself.`,
     );
+  }
+
+  // Gendered fit matters for gift/style: the code already prefixes apparel
+  // queries, but the model should also carry it into its OWN query wording and
+  // reasoning (fragrance, watches, "for her/him" framing).
+  if (session.lens === "gift" || session.lens === "style") {
+    const gender = recipientGender(session);
+    if (gender) {
+      lines.push(
+        `RECIPIENT IS A ${gender.toUpperCase()}: for anything gendered — clothing, shoes, fragrance, grooming, jewellery, accessories — search and reason with the right gender ("${gender === "woman" ? "women's" : "men's"} ..."), because fit, sizing and cut genuinely differ. Leave genderless items (mugs, books, gadgets) alone.`,
+      );
+    }
   }
 
   const questionsLeft = MAX_QUESTIONS - session.questionCount;
@@ -1021,9 +1048,14 @@ export async function runExpertTurn(
         for (const note of notes) emit({ type: "limitation", text: note });
         emit({ type: "present", presentation });
         // The client's board is add-only across turns — remember what's on it
-        // so the top-up never re-adds a product under a second header later.
+        // (by id AND by content identity, so a multi-merchant relisting can't
+        // reappear next turn) so the fills never re-add it under a new header.
         for (const cat of presentation.board) {
-          for (const item of cat.items) session.boardedIds.add(item.productId);
+          for (const item of cat.items) {
+            session.boardedIds.add(item.productId);
+            const p = session.evidence.get(resolveEvidenceId(session, item.productId))?.product;
+            if (p) session.boardedIdentities.add(productIdentityKey(p));
+          }
         }
         session.transcript.push({ role: "assistant", content: presentation.message, turn: session.turn });
         terminal = "present";

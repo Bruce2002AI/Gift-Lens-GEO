@@ -6,8 +6,9 @@ import type { NormalizedProduct, SearchParams } from "@/lib/catalog/types";
 import { formatMinor } from "@/lib/gift/currency";
 import { logger } from "@/lib/logger";
 import { phraseInText } from "@/lib/utils";
-import { scopeFenceTerms } from "./ledger";
-import { buildSnippets } from "./truth";
+import { dedupeProducts, productIdentityKey } from "./dedup";
+import { recipientGender, scopeFenceTerms } from "./ledger";
+import { buildSnippets, resolveEvidenceId } from "./truth";
 import type { AgentSession, ExpertEvent, SearchSpec } from "./types";
 
 /**
@@ -20,9 +21,30 @@ export type Emit = (event: ExpertEvent) => void;
 
 /** Below this, a query was too niche to give the shopper a real choice. */
 const THIN_RESULTS = 9;
+/** Gift/style are shopped by browsing many options, so their shelves run deeper. */
+const THIN_RESULTS_BROWSE = 12;
 
 /** Results per catalog call. The board wants deep category rails, so ask big. */
 const SEARCH_LIMIT = 16;
+
+/**
+ * Garments/accessories whose fit, sizing and cut are gendered — a "shirt" for a
+ * man and for a woman are different products. When we know who we're shopping
+ * for, these queries get a gender prefix; genderless items (mugs, books, gadgets)
+ * are left exactly as written.
+ */
+// Bare "top"/"tee" are deliberately excluded — they collide with "spinning top",
+// "golf tee" and similar non-apparel gifts. T-shirts are covered by "t-shirts?".
+const APPAREL_NOUN =
+  /\b(shirt|t-?shirts?|blouse|dress(?:es)?|gown|kurtas?|kurti|saree|sari|lehenga|salwar|jeans|trousers?|pants?|chinos?|shorts?|skirts?|leggings|jackets?|blazers?|coats?|hoodies?|sweat(?:er|shirt)s?|jumper|cardigans?|suits?|shoes?|sneakers?|trainers?|boots?|sandals?|heels?|loafers?|watch(?:es)?|wallets?|belts?|sunglasses|perfume|fragrances?|cologne|deodorant|grooming|jewell?ery|necklaces?|bracelets?|earrings?|handbags?|purses?|backpacks?|scarf|scarves|gloves|socks|nightwear|pyjamas?|pajamas?|lingerie|innerwear)\b/i;
+const GENDER_WORD =
+  /\b(men'?s?|man|male|women'?s?|woman|female|unisex|boys?|girls?|ladies|gents?|kids?|\bhim\b|\bher\b)\b/i;
+
+/** Prefix an apparel query with the recipient's gender, unless one is present. */
+export function withGender(query: string, gender: "woman" | "man"): string {
+  if (GENDER_WORD.test(query) || !APPAREL_NOUN.test(query)) return query;
+  return `${gender === "woman" ? "women's" : "men's"} ${query.trim()}`;
+}
 
 const COLOUR_WORDS = new Set([
   "white","black","blue","navy","grey","gray","green","olive","brown","tan","beige","cream",
@@ -84,6 +106,14 @@ export async function runSearches(
 ): Promise<string> {
   const fences = scopeFenceTerms(session.ledger);
   const c = session.ledger.constraints;
+  // Gendered fit matters for gift/style: "men's shirt" ≠ "women's shirt". When
+  // we know who we're shopping for, apparel queries get the prefix (code, not the
+  // model, so it's never forgotten); null for genderless lenses/unknown gender.
+  const gender =
+    session.lens === "gift" || session.lens === "style" ? recipientGender(session) : null;
+  // Gift/style are browsed across many options, so widen their shelves harder.
+  const thin =
+    session.lens === "gift" || session.lens === "style" ? THIN_RESULTS_BROWSE : THIN_RESULTS;
   // Cap concurrency: firing 8 catalog calls at once gets the burst throttled
   // and searches come back "failed" for no good reason.
   const gate = pLimit(2);
@@ -104,7 +134,8 @@ export async function runSearches(
           : null;
 
       /** One catalog call plus the filters every result set gets. */
-      const runOne = async (query: string): Promise<NormalizedProduct[]> => {
+      const runOne = async (rawQuery: string): Promise<NormalizedProduct[]> => {
+        const query = gender ? withGender(rawQuery, gender) : rawQuery;
         const params: SearchParams = {
           query,
           limit: SEARCH_LIMIT,
@@ -185,9 +216,9 @@ export async function runSearches(
 
       // A hyper-specific phrase finds two things; the shopper wants a shortlist.
       // Widen automatically rather than spending the agent's turn on it.
-      if (collected.size < THIN_RESULTS) {
+      if (collected.size < thin) {
         for (const variant of broadenQuery(spec.query)) {
-          if (collected.size >= THIN_RESULTS) break;
+          if (collected.size >= thin) break;
           try {
             const more = await runOne(variant);
             const before = collected.size;
@@ -205,7 +236,12 @@ export async function runSearches(
         }
       }
 
-      const products = [...collected.values()];
+      // Collapse relistings BEFORE anything downstream sees them: the catalog is
+      // multi-merchant, so the same product comes back under several sellers.
+      // Keep the cheapest instance so the shopper sees the best price, not five
+      // copies of one pen. Candidates, the aisle memory and the budget-screen
+      // record all key off this unique set.
+      const products = dedupeProducts([...collected.values()]);
       // Remember which aisle these came from: a thin board category can be
       // topped up later with siblings from the same search, in result order.
       if (products.length > 0) {
@@ -314,11 +350,19 @@ export async function runSimilaritySearch(
     );
     if (res.source === "mock") session.sawMock = true;
     const fences = scopeFenceTerms(session.ledger);
-    const products = res.products.filter((p) => {
-      if (p.id === productId) return false; // never re-offer the original
-      const text = `${p.title} ${p.categories.map((x) => x.value).join(" ")}`.toLowerCase();
-      return !fences.some((t) => phraseInText(text, t, { stemPlurals: true }));
-    });
+    // "Show similar" must return CLOSELY RELATED items, never the same product —
+    // so exclude both the original id AND its relistings by other merchants
+    // (same content identity), then collapse relistings among the results.
+    const anchorProduct = session.evidence.get(resolveEvidenceId(session, productId))?.product;
+    const anchorKey = anchorProduct ? productIdentityKey(anchorProduct) : null;
+    const products = dedupeProducts(
+      res.products.filter((p) => {
+        if (p.id === productId) return false; // never re-offer the original
+        if (anchorKey && productIdentityKey(p) === anchorKey) return false; // same item, other seller
+        const text = `${p.title} ${p.categories.map((x) => x.value).join(" ")}`.toLowerCase();
+        return !fences.some((t) => phraseInText(text, t, { stemPlurals: true }));
+      }),
+    );
     for (const p of products) {
       if (c.budgetMaxMinor != null) {
         const prev = session.budgetScreenedCap.get(p.id);

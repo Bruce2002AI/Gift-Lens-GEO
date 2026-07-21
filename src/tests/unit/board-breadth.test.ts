@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ensureBoardBreadth } from "@/lib/agent/board";
+import { productIdentityKey } from "@/lib/agent/dedup";
 import { ledgerToBaseIntent, newSession } from "@/lib/agent/ledger";
 import { notarizeBoardItem, verifyPresentation } from "@/lib/agent/truth";
 import { unsearchedInterestTerms, wantsMoreVariety } from "@/lib/agent/loop";
@@ -101,12 +102,33 @@ function presentationWith(
 
 const noop = () => {};
 
+// Fifteen genuinely different movie-themed gifts — low pairwise title overlap,
+// like real catalog results (not "Movie Gift 1/2/3", which the variety guard
+// would correctly collapse as near-identical).
+const MOVIE_GIFTS = [
+  "Ben 10 Omnitrix Projector Watch",
+  "Gwen Tennyson Collectible Action Figure",
+  "Retro Cinema Popcorn Maker",
+  "Vintage Film Reel Wall Clock",
+  "Movie Night Wearable Blanket Hoodie",
+  "Director Clapboard Hardcover Notebook",
+  "Classic Film Poster Framed Set",
+  "Galaxy Star Ceiling Projector Lamp",
+  "Superhero Ceramic Character Mug",
+  "Film Buff Trivia Card Game",
+  "Portable Bluetooth Cinema Speaker",
+  "Cozy Fleece Cinema Throw",
+  "Scented Popcorn Soy Candle",
+  "Widescreen Foldable Phone Stand",
+  "Marvel Universe Sticker Journal",
+];
+
 describe("ensureBoardBreadth — the 10-20 options guarantee", () => {
   it("fills a one-pick board toward the target from the searches already run", async () => {
     // One curated pen, plus a whole aisle of movie-themed gifts already found.
     const pen = product({ id: "pen", title: "Noble Heritage Fountain Pen", categories: [{ value: "Office > Pens" }] });
-    const movieGifts = Array.from({ length: 15 }, (_, i) =>
-      product({ id: `m${i}`, title: `Movie Gift ${i}`, categories: [{ value: "Gifts > Cinema" }] }),
+    const movieGifts = MOVIE_GIFTS.map((title, i) =>
+      product({ id: `m${i}`, title, categories: [{ value: "Gifts > Cinema" }] }),
     );
     const s = sessionWithEvidence([pen, ...movieGifts]);
     s.searchHits.set("movie lover gift", movieGifts.map((p) => p.id));
@@ -125,8 +147,11 @@ describe("ensureBoardBreadth — the 10-20 options guarantee", () => {
 
   it("slots same-category siblings into the existing rail, not the catch-all", async () => {
     const anchor = product({ id: "pen0", title: "Classic Fountain Pen", categories: [{ value: "Office > Pens" }] });
-    const penSiblings = Array.from({ length: 6 }, (_, i) =>
-      product({ id: `pen${i + 1}`, title: `Fountain Pen ${i + 1}`, categories: [{ value: "Office > Pens" }] }),
+    // Brand-varied pens: they share the "Pens" leaf (so they fit) but differ
+    // enough in title to survive the near-duplicate variety guard.
+    const brands = ["Parker Sonnet", "Lamy Safari", "Cross Century", "Pilot Metropolitan", "Waterman Expert", "Sheaffer Prelude"];
+    const penSiblings = brands.map((b, i) =>
+      product({ id: `pen${i + 1}`, title: `${b} Fountain Pen`, categories: [{ value: "Office > Pens" }] }),
     );
     const s = sessionWithEvidence([anchor, ...penSiblings]);
     s.searchHits.set("fountain pen", [anchor.id, ...penSiblings.map((p) => p.id)]);
@@ -139,6 +164,43 @@ describe("ensureBoardBreadth — the 10-20 options guarantee", () => {
     const pens = presentation.board.find((c) => c.name === "Fountain Pens")!;
     expect(pens.items.length).toBeGreaterThan(1);
     expect(pens.items.length).toBeLessThanOrEqual(8);
+  });
+
+  it("excludes a multi-merchant relisting of a product already shown", async () => {
+    const pen = product({ id: "pen", title: "Noble Heritage Fountain Pen", categories: [{ value: "Office > Pens" }] });
+    // A DIFFERENT id, but the same product from another seller.
+    const relisting = product({ id: "pen-otherseller", title: "Noble Heritage Fountain Pen", categories: [{ value: "Office > Pens" }] });
+    const other = product({ id: "org", title: "Walnut Desk Organizer", categories: [{ value: "Office > Desk" }] });
+    const s = sessionWithEvidence([pen, relisting, other]);
+    s.searchHits.set("fountain pen", ["pen", "pen-otherseller", "org"]);
+    // The pen was already boarded last turn — its identity is remembered.
+    s.boardedIds.add("pen");
+    s.boardedIdentities.add(productIdentityKey(pen));
+
+    const presentation = presentationWith(s, "Pens", []); // empty seed board
+    await ensureBoardBreadth(s, presentation, new TraceCollector(), noop);
+    const titles = presentation.board.flatMap((c) => c.items.map((i) => i.title));
+    // The relisting is filtered out; the genuinely different organizer gets in.
+    expect(titles.filter((t) => t === "Noble Heritage Fountain Pen")).toHaveLength(0);
+    expect(titles).toContain("Walnut Desk Organizer");
+  });
+
+  it("does not stack near-identical items in one rail — variety over repetition", async () => {
+    const base = product({ id: "b0", title: "Noble Heritage Fountain Pen Black", categories: [{ value: "Office > Pens" }] });
+    // Same pen line, different colours — distinct ids/identities, but near-identical titles.
+    const blue = product({ id: "b1", title: "Noble Heritage Fountain Pen Blue", categories: [{ value: "Office > Pens" }] });
+    const green = product({ id: "b2", title: "Noble Heritage Fountain Pen Green", categories: [{ value: "Office > Pens" }] });
+    const varied = product({ id: "b3", title: "Parker Sonnet Rollerball Pen", categories: [{ value: "Office > Pens" }] });
+    const s = sessionWithEvidence([base, blue, green, varied]);
+    s.searchHits.set("fountain pen", ["b0", "b1", "b2", "b3"]);
+
+    const presentation = presentationWith(s, "Pens", ["b0"]);
+    await ensureBoardBreadth(s, presentation, new TraceCollector(), noop);
+    const titles = presentation.board.flatMap((c) => c.items.map((i) => i.title));
+    // The near-identical Blue/Green colours are held back; the varied pen gets in.
+    expect(titles).not.toContain("Noble Heritage Fountain Pen Blue");
+    expect(titles).not.toContain("Noble Heritage Fountain Pen Green");
+    expect(titles).toContain("Parker Sonnet Rollerball Pen");
   });
 
   it("never re-adds a product already shown this session", async () => {
@@ -171,8 +233,8 @@ describe("ensureBoardBreadth — the 10-20 options guarantee", () => {
   });
 
   it("stops mutating when the turn is superseded (aborted)", async () => {
-    const pen = product({ id: "pen" });
-    const extras = Array.from({ length: 10 }, (_, i) => product({ id: `x${i}` }));
+    const pen = product({ id: "pen", title: "Noble Heritage Fountain Pen" });
+    const extras = MOVIE_GIFTS.slice(0, 10).map((title, i) => product({ id: `x${i}`, title }));
     const s = sessionWithEvidence([pen, ...extras]);
     s.searchHits.set("stuff", extras.map((p) => p.id));
     const presentation = presentationWith(s, "Pens", ["pen"]);
@@ -240,6 +302,18 @@ describe("unsearchedInterestTerms — react to a new interest instead of fixatin
       lens: "gift",
     });
     expect(unsearchedInterestTerms(s)).toEqual([]);
+  });
+
+  it("does not count an interest as searched from a mere substring of a prior query", () => {
+    const s = newSession("s1", "gift");
+    s.ledger.facts.push({
+      id: "f1", key: "recipient.interests", value: "cat", provenance: "said", quote: "cat", turn: 1, lens: "gift",
+    });
+    // A prior generic query contains "cat" as a substring ("deli-cat-e") but the
+    // recipient's love of cats was never actually searched.
+    s.searchHits.set("delicate silver necklace", ["p1"]);
+    s.ledger.searchQueries.push("delicate silver necklace");
+    expect(unsearchedInterestTerms(s)).toContain("cat");
   });
 });
 
