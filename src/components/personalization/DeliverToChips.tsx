@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Hash, MapPin } from "lucide-react";
-import { SHIPPING_COUNTRIES, countryName, postalFormat } from "@/lib/gift/countries";
+import { SHIPPING_COUNTRIES, countryName, postalFormat, postalTerm } from "@/lib/gift/countries";
 
 /**
  * Home-screen "deliver to" control — a country selector and a PIN/postal field
@@ -21,6 +21,11 @@ export function DeliverToChips({
 }) {
   const name = countryName(country);
   const fmt = postalFormat(country);
+  // India says "PIN code", the US "ZIP code", etc. — mirror the shopper's country.
+  const term = postalTerm(country);
+  // Sentence-cased for use as a standalone label ("Postal code", "Postcode");
+  // "PIN code"/"ZIP code" already lead with a capital, so this is a no-op there.
+  const termLabel = term.charAt(0).toUpperCase() + term.slice(1);
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
@@ -47,16 +52,16 @@ export function DeliverToChips({
 
       <label className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3.5 py-2 text-[13px] text-ink transition-colors focus-within:border-plum">
         <Hash size={14} aria-hidden className="text-ink-soft" />
-        <span className="sr-only">PIN or postal code</span>
+        <span className="sr-only">{termLabel}</span>
         <input
           value={postal}
           onChange={(e) =>
             onPostal(fmt?.numeric ? e.target.value.replace(/[^\d]/g, "") : e.target.value)
           }
-          placeholder={fmt?.example ? `PIN ${fmt.example}` : "PIN code"}
+          placeholder={fmt?.example ? `${termLabel} ${fmt.example}` : termLabel}
           inputMode={fmt?.numeric ? "numeric" : undefined}
           maxLength={fmt?.maxLength}
-          className="w-24 border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
+          className="w-32 border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
         />
       </label>
     </div>

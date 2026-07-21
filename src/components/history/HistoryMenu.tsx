@@ -103,7 +103,7 @@ export function HistoryMenu() {
 
       {open && (
         <div className="absolute right-0 top-11 z-50 w-80 overflow-hidden rounded-2xl border border-line bg-white shadow-(--shadow-lift)">
-          <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+          <div className="flex items-center gap-2 border-b border-line px-3 py-2 transition-colors focus-within:border-plum">
             <Search size={14} className="shrink-0 text-ink-soft" aria-hidden />
             <input
               type="text"

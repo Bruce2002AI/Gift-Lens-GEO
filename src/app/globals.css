@@ -112,10 +112,13 @@ button:disabled {
   border-radius: 4px;
 }
 
-/* The composer and hero search show focus via their wrapper's border/ring, so
-   the inner field shouldn't also draw the global focus outline. */
-#expert-input:focus-visible,
-#hero-search:focus-visible {
+/* Text fields and selects show focus via their own border/ring (or their
+   wrapper's), so they shouldn't also draw the global focus outline on top —
+   one border, not a border plus a ring. Range sliders, checkboxes, and radios
+   have no border of their own, so they keep the outline as their only cue. */
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
   outline: none;
 }
 
