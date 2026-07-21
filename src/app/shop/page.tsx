@@ -476,6 +476,10 @@ export default function ExpertShopPage() {
   const heroInputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  /** Results column — used to scroll to the newest category after "Similar". */
+  const productsRef = useRef<HTMLElement>(null);
+  /** Set when "Similar" is clicked, so the next board update scrolls into view. */
+  const moreLikePendingRef = useRef(false);
   /** Live mirror of `input` so the typing effect can pause without restarting. */
   const inputValueRef = useRef("");
 
@@ -500,6 +504,18 @@ export default function ExpertShopPage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [feed, streaming]);
+
+  /** After a "Similar" turn finishes, bring the newest category into view — its
+   *  fresh picks otherwise land silently at the bottom of the results. */
+  useEffect(() => {
+    if (streaming || !moreLikePendingRef.current) return;
+    moreLikePendingRef.current = false;
+    const t = setTimeout(() => {
+      const sections = productsRef.current?.querySelectorAll("section[aria-label]");
+      sections?.[sections.length - 1]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [streaming, board]);
 
   /** Grow the composer to fit its text (up to a cap) instead of scrolling it. */
   useEffect(() => {
@@ -918,9 +934,11 @@ export default function ExpertShopPage() {
     [lens, pushItem, sessionId, stream],
   );
 
-  /** "More like this" under a card — a similarity search anchored on it. */
+  /** "More like this" under a card — a similarity search anchored on it. The
+   *  fresh picks land in a new category at the end, so flag a scroll-to. */
   const handleMoreLike = useCallback(
     (productId: string) => {
+      moreLikePendingRef.current = true;
       sendOp("More like this →", { kind: "more_like", productId });
     },
     [sendOp],
@@ -1622,7 +1640,7 @@ export default function ExpertShopPage() {
         </section>
 
         {/* Results page */}
-        <section aria-label="Products" className="min-w-0 space-y-4">
+        <section ref={productsRef} aria-label="Products" className="min-w-0 space-y-4">
           {/* Toolbar — count + sort. */}
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">

@@ -187,7 +187,7 @@ function CategorySection({
   // reads as a labeled shelf; the whole page scrolls as one.
   if (layout === "grid") {
     return (
-      <section aria-label={category.name} className="space-y-3">
+      <section aria-label={category.name} className="scroll-mt-20 space-y-3">
         <div className="sticky top-[3.75rem] z-20 -mx-1 bg-cream/92 px-1 py-2 backdrop-blur-sm">
           {heading}
         </div>
