@@ -462,6 +462,7 @@ export function forgetHydratedFacts(session: AgentSession, lens: ExpertLensId): 
   c.budgetMaxMinor = null;
   c.budgetMinMinor = null;
   c.country = null;
+  c.postalCode = null;
   c.deadline = null;
   c.exclusions = [];
 }

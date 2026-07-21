@@ -175,6 +175,7 @@ export function constraintsFromFacts(
   const minMinor = find("budget", "min_minor");
   const currency = find("budget", "currency") ?? find("profile", "currency");
   const country = find("profile", "country");
+  const postalCode = find("profile", "postal_code");
 
   return {
     ...base,
@@ -191,6 +192,10 @@ export function constraintsFromFacts(
       typeof country === "string" && country && base.country == null
         ? country
         : base.country,
+    postalCode:
+      typeof postalCode === "string" && postalCode && base.postalCode == null
+        ? postalCode
+        : base.postalCode,
   };
 }
 
@@ -306,6 +311,9 @@ export function constraintsToUpserts(
   }
   if (constraints.country) {
     out.push({ ...base, category: "profile", key: "country", value: constraints.country });
+  }
+  if (constraints.postalCode) {
+    out.push({ ...base, category: "profile", key: "postal_code", value: constraints.postalCode });
   }
   return out;
 }

@@ -119,6 +119,7 @@ export function forgetUserSessions(userId: string): number {
     c.budgetMaxMinor = null;
     c.budgetMinMinor = null;
     c.country = null;
+    c.postalCode = null;
     c.deadline = null;
     c.exclusions = [];
     // The person profiles are gone; drop the active pointer back to the owner

@@ -55,6 +55,7 @@ function emptyConstraints(): LedgerConstraints {
     budgetMinMinor: null,
     currency: "INR",
     country: null,
+    postalCode: null,
     deadline: null,
     exclusions: [],
   };
