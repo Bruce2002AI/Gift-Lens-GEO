@@ -201,7 +201,7 @@ export function ShortlistDrawer() {
                       aria-label={`Add ${group.shop} items to cart`}
                       className="btn-primary shrink-0 !px-4 !py-2 text-sm active:scale-[0.98]"
                     >
-                      Add to cart
+                      Go to cart
                     </button>
                   </div>
                 </section>

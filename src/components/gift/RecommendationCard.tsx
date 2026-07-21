@@ -64,7 +64,7 @@ export function RecommendationCard({
     p.variants.find((v) => v.available) ??
     p.variants[0];
   const buyUrl = variant?.checkoutUrl ?? variant?.url ?? variant?.seller?.url ?? p.url;
-  const buyLabel = variant?.checkoutUrl ? "Continue to checkout" : "View on merchant";
+  const buyLabel = variant?.checkoutUrl ? "Continue to checkout" : "View on store";
   // Prefer the product page (not checkout) for the image-click redirect.
   const viewUrl = variant?.url ?? p.url ?? variant?.seller?.url ?? variant?.checkoutUrl ?? null;
   const available = p.variants.some((v) => v.available === true);
