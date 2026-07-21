@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
   ChevronDown,
+  Clock,
   HeartHandshake,
   ImagePlus,
   Info,
@@ -44,6 +45,15 @@ import { SubjectSwitcher } from "@/components/personalization/SubjectSwitcher";
 import type { PersonalizationSignal } from "@/lib/personalization/ledger-bridge";
 import type { Outcome } from "@/lib/personalization/types";
 import { RichText } from "@/components/expert/RichText";
+import { useHistory } from "@/components/history/HistoryProvider";
+import { HistoryMenu } from "@/components/history/HistoryMenu";
+import {
+  listHistory,
+  loadSnapshot,
+  subscribeHistory,
+  upsertHistory,
+  type HistoryEntry,
+} from "@/lib/history/storage";
 
 // ---------------------------------------------------------------------------
 // Feed model — every stream event (plus user messages) lands here in order
@@ -65,6 +75,28 @@ type FeedItemBase =
 
 type FeedItem = FeedItemBase & { id: number };
 type TraceItem = Extract<FeedItem, { kind: "trace" }>;
+
+/** Everything needed to visually restore a past search (see history/storage). */
+interface ChatSnapshot {
+  feed: FeedItem[];
+  board: VerifiedBoardCategory[];
+  lens: ExpertLensId | null;
+  ledger: LedgerView | null;
+  signals: PersonalizationSignal[];
+  learnedFacts: ProfileFactWire[];
+  subjects: SubjectSummary[];
+  activeSubjectId: string;
+  sort: BoardSort;
+  sessionId: string | null;
+}
+
+const SELF_SUBJECT: SubjectSummary = {
+  subjectId: "self",
+  name: "You",
+  relationship: null,
+  kind: "self",
+  createdBy: "user",
+};
 
 /** Consecutive trace events render together as one muted chip row. */
 type FeedBlock =
@@ -187,9 +219,7 @@ export default function ExpertShopPage() {
   /** Facts the agent learned this session, accumulated so the panel fills live. */
   const [learnedFacts, setLearnedFacts] = useState<ProfileFactWire[]>([]);
   /** The people the shopper has profiles for; "You" is always first. */
-  const [subjects, setSubjects] = useState<SubjectSummary[]>([
-    { subjectId: "self", name: "You", relationship: null, kind: "self", createdBy: "user" },
-  ]);
+  const [subjects, setSubjects] = useState<SubjectSummary[]>([SELF_SUBJECT]);
   /** Whose profile the conversation is currently about. */
   const [activeSubjectId, setActiveSubjectId] = useState<string>("self");
   /** The listing the shopper just opened — we ask one outcome question about it. */
@@ -212,6 +242,17 @@ export default function ExpertShopPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  // --- Search history (device-local) -------------------------------------
+  const { pendingRestoreId, consumeRestore, newSearchNonce } = useHistory();
+  /** Stable id for the current conversation — the history/restore key. */
+  const convIdRef = useRef<string | null>(null);
+  /** Debounce handle so a burst of state updates saves once. */
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Skip reacting to the initial nonce; only fire on an actual "+" click. */
+  const newSearchSeenRef = useRef(newSearchNonce);
+  /** Recent searches shown on the empty hero, above the example prompts. */
+  const [recentHistory, setRecentHistory] = useState<HistoryEntry[]>([]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -250,6 +291,139 @@ export default function ExpertShopPage() {
     const id = idRef.current;
     setFeed((prev) => [...prev, { ...item, id }]);
   }, []);
+
+  /** Wipe the conversation to a blank slate under a fresh id ("+ new search"). */
+  const resetConversation = useCallback(() => {
+    abortRef.current?.abort();
+    convIdRef.current = crypto.randomUUID();
+    idRef.current = 0;
+    activeSubjectRef.current = "self";
+    autoCollapsedRef.current = false;
+    lastPresentBoardRef.current = [];
+    setFeed([]);
+    setBoard([]);
+    setLens(null);
+    setLedger(null);
+    setSignals([]);
+    setLearnedFacts([]);
+    setSubjects([SELF_SUBJECT]);
+    setActiveSubjectId("self");
+    setSessionId(null);
+    setSort("picks");
+    setInput("");
+    setPendingImage(null);
+    setOutcomeFor(null);
+    setPortraitCollapsed(false);
+  }, []);
+
+  /** Rehydrate the page from a saved snapshot (view + re-engage). */
+  const restoreConversation = useCallback((id: string, snap: ChatSnapshot) => {
+    abortRef.current?.abort();
+    convIdRef.current = id;
+    idRef.current = snap.feed.reduce((max, f) => Math.max(max, f.id), 0);
+    activeSubjectRef.current = snap.activeSubjectId;
+    // Board already exists, so suppress the one-shot Portrait auto-collapse.
+    autoCollapsedRef.current = true;
+    lastPresentBoardRef.current = [];
+    setFeed(snap.feed);
+    setBoard(snap.board);
+    setLens(snap.lens);
+    setLedger(snap.ledger);
+    setSignals(snap.signals);
+    setLearnedFacts(snap.learnedFacts);
+    setSubjects(snap.subjects.length > 0 ? snap.subjects : [SELF_SUBJECT]);
+    setActiveSubjectId(snap.activeSubjectId);
+    setSort(snap.sort);
+    setSessionId(snap.sessionId);
+    setPortraitCollapsed(snap.board.length > 0);
+    setOutcomeFor(null);
+  }, []);
+
+  // Reopen a past search requested from the navbar history menu.
+  useEffect(() => {
+    if (!pendingRestoreId) return;
+    const snap = loadSnapshot<ChatSnapshot>(pendingRestoreId);
+    // Applying an external navigation signal to React state — intentional.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (snap) restoreConversation(pendingRestoreId, snap);
+    consumeRestore();
+  }, [pendingRestoreId, consumeRestore, restoreConversation]);
+
+  // Start a blank search when the navbar "+" is clicked.
+  useEffect(() => {
+    if (newSearchNonce === newSearchSeenRef.current) return;
+    newSearchSeenRef.current = newSearchNonce;
+    resetConversation();
+  }, [newSearchNonce, resetConversation]);
+
+  // Keep the hero's "Recent searches" list in sync with stored history.
+  useEffect(() => {
+    const load = () => setRecentHistory(listHistory());
+    load();
+    return subscribeHistory(load);
+  }, []);
+
+  // Persist the conversation once a turn settles (debounced). View-only restore:
+  // we snapshot the visible chat + board, not the server session state.
+  useEffect(() => {
+    if (streaming || feed.length === 0) return;
+    const userMsgs = feed
+      .filter((f): f is Extract<FeedItem, { kind: "user" }> => f.kind === "user")
+      .map((f) => f.text)
+      .filter((t): t is string => Boolean(t));
+    if (userMsgs.length === 0) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const id = convIdRef.current ?? (convIdRef.current = crypto.randomUUID());
+      const productCount = board.reduce((n, c) => n + c.items.length, 0);
+      const now = new Date().toISOString();
+      const createdAt = listHistory().find((e) => e.id === id)?.createdAt ?? now;
+      const entry: HistoryEntry = {
+        id,
+        title: userMsgs[0].slice(0, 100),
+        subtitle:
+          userMsgs.length > 1
+            ? userMsgs[userMsgs.length - 1].slice(0, 100)
+            : `${productCount} product${productCount === 1 ? "" : "s"} found`,
+        lens,
+        createdAt,
+        updatedAt: now,
+        turnCount: userMsgs.length,
+        productCount,
+        thumbnailUrl: board[0]?.items[0]?.imageUrl ?? null,
+      };
+      const snapshot: ChatSnapshot = {
+        feed,
+        board,
+        lens,
+        ledger,
+        signals,
+        learnedFacts,
+        subjects,
+        activeSubjectId,
+        sort,
+        sessionId,
+      };
+      upsertHistory(entry, snapshot);
+    }, 600);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [
+    streaming,
+    feed,
+    board,
+    lens,
+    ledger,
+    signals,
+    learnedFacts,
+    subjects,
+    activeSubjectId,
+    sort,
+    sessionId,
+  ]);
 
   const handleEvent = useCallback(
     (event: ExpertEvent) => {
@@ -888,6 +1062,30 @@ export default function ExpertShopPage() {
 
         <div className="mt-5">{renderLensPicker(false)}</div>
 
+        {recentHistory.length > 0 && (
+          <div className="mt-8">
+            <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
+              Recent searches
+            </p>
+            <div className="flex flex-col gap-2">
+              {recentHistory.slice(0, 4).map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  className="chip w-full justify-start text-left"
+                  onClick={() => {
+                    const snap = loadSnapshot<ChatSnapshot>(entry.id);
+                    if (snap) restoreConversation(entry.id, snap);
+                  }}
+                >
+                  <Clock size={14} aria-hidden className="shrink-0" />
+                  <span className="truncate">{entry.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-8">
           <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
             Or try one
@@ -929,9 +1127,12 @@ export default function ExpertShopPage() {
           <div className="card flex max-h-[65vh] flex-col p-4 xl:sticky xl:top-[4.5rem] xl:h-[calc(100vh-6rem)] xl:max-h-none">
             <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-3">
               <h1 className="font-(family-name:--font-display) text-lg font-semibold">ShopLens</h1>
-              {lens && (
-                <span className="text-xs font-medium text-ink-soft">{MODE_META[lens].name}</span>
-              )}
+              <div className="flex items-center gap-2">
+                {lens && (
+                  <span className="text-xs font-medium text-ink-soft">{MODE_META[lens].name}</span>
+                )}
+                <HistoryMenu />
+              </div>
             </div>
 
             <div className="mb-3">{renderLensPicker(true)}</div>
