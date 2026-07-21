@@ -177,6 +177,26 @@ export function postalFormat(code: string | null | undefined): PostalFormat | nu
 }
 
 /**
+ * What a country calls its postal code, for labels, placeholders, and messages.
+ * India says "PIN code", the US says "ZIP code", much of the Commonwealth says
+ * "postcode"; everyone else falls back to the generic "postal code".
+ */
+const POSTAL_TERMS: Record<string, string> = {
+  IN: "PIN code",
+  US: "ZIP code",
+  GB: "postcode",
+  AU: "postcode",
+  NZ: "postcode",
+  IE: "postcode",
+  ZA: "postcode",
+};
+
+export function postalTerm(code: string | null | undefined): string {
+  if (!code) return "postal code";
+  return POSTAL_TERMS[code.toUpperCase()] ?? "postal code";
+}
+
+/**
  * Validate a postal code against a country's format. Returns an error message
  * to show the shopper, or null when the value is acceptable (including when the
  * country is unknown or has no defined format). An empty value is always fine —
@@ -191,7 +211,8 @@ export function validatePostalCode(
   const fmt = postalFormat(code);
   if (!fmt) return null;
   const name = countryName(code) ?? code;
-  if (fmt.maxLength === 0) return `${name} has no postal code.`;
+  const term = postalTerm(code);
+  if (fmt.maxLength === 0) return `${name} has no ${term}.`;
   if (fmt.pattern.test(trimmed.toUpperCase())) return null;
-  return `Enter a valid ${name} postal code (e.g. ${fmt.example}).`;
+  return `Enter a valid ${name} ${term} (e.g. ${fmt.example}).`;
 }

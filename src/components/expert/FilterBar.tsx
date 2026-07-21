@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Hash, HeartHandshake, MapPin, Pencil, Plus, SlidersHorizontal, User, Wallet, X } from "lucide-react";
 import type { LedgerView, LedgerConstraints, SubjectSummary } from "@/lib/agent/types";
 import { formatMinor } from "@/lib/gift/currency";
-import { SHIPPING_COUNTRIES, countryName, postalFormat, validatePostalCode } from "@/lib/gift/countries";
+import { SHIPPING_COUNTRIES, countryName, postalFormat, postalTerm, validatePostalCode } from "@/lib/gift/countries";
 
 function formatBudget(c: LedgerConstraints): string | null {
   const { budgetMinMinor: min, budgetMaxMinor: max, currency } = c;
@@ -73,7 +73,10 @@ function EditableChip({
 
   if (editing) {
     return (
-      <div className="inline-flex flex-col gap-0.5">
+      // Relative so the validation message can float below the field without
+      // adding height or width to the chip — otherwise it grows the row and
+      // shoves the neighbouring chips out of place.
+      <div className="relative inline-flex flex-col">
         <form
           className={`inline-flex items-center gap-1 rounded-full border bg-white px-2.5 py-1 ${
             error ? "border-danger" : "border-plum"
@@ -107,7 +110,11 @@ function EditableChip({
             className="w-28 border-0 bg-transparent text-xs text-ink placeholder:text-ink-soft/50 outline-none focus:outline-none focus-visible:outline-none focus:ring-0"
           />
         </form>
-        {error && <span className="px-2.5 text-[10px] text-danger">{error}</span>}
+        {error && (
+          <span className="absolute left-0 top-full z-10 mt-0.5 whitespace-nowrap px-2.5 text-[10px] text-danger">
+            {error}
+          </span>
+        )}
       </div>
     );
   }
@@ -375,19 +382,19 @@ export function FilterBar({
         onSelect={(country) => onRefine(`Ship to ${country}.`)}
       />
 
-      {/* PIN code only makes sense once we know the country — its format,
-          validation, and placeholder all depend on it. */}
+      {/* Postal code only makes sense once we know the country — its format,
+          validation, name (PIN/ZIP/postcode), and placeholder all depend on it. */}
       {c?.country && (
         <EditableChip
           icon={<Hash size={12} />}
-          label="pin code"
+          label={postalTerm(c.country)}
           value={c.postalCode ?? null}
-          placeholder={postal?.example ? `e.g. ${postal.example}` : "Add PIN code"}
+          placeholder={postal?.example ? `e.g. ${postal.example}` : `Add ${postalTerm(c.country)}`}
           busy={busy}
           numeric={postal?.numeric ?? false}
           maxLength={postal?.maxLength}
           validate={(raw) => validatePostalCode(c.country, raw)}
-          onCommit={(raw) => onRefine(`My postal/PIN code is ${raw}.`)}
+          onCommit={(raw) => onRefine(`My ${postalTerm(c.country)} is ${raw}.`)}
         />
       )}
 
