@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { LogOut } from "lucide-react";
+import { LogOut, UserCog } from "lucide-react";
 
 interface UserMenuProps {
   name?: string | null;
@@ -75,6 +76,15 @@ export function UserMenu({ name, email }: UserMenuProps) {
               )}
             </div>
           </div>
+          <Link
+            href="/personalization"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-ink transition-colors hover:bg-sand"
+          >
+            <UserCog size={15} aria-hidden />
+            Edit profile
+          </Link>
           <button
             type="button"
             role="menuitem"
@@ -82,7 +92,7 @@ export function UserMenu({ name, email }: UserMenuProps) {
               setOpen(false);
               signOut({ callbackUrl: "/" });
             }}
-            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-ink transition-colors hover:bg-sand"
+            className="flex w-full items-center gap-2 border-t border-line px-4 py-2.5 text-left text-sm font-medium text-ink transition-colors hover:bg-sand"
           >
             <LogOut size={15} aria-hidden />
             Sign out
