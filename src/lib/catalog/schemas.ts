@@ -76,6 +76,9 @@ export const RatingSchema = z.union([
     rating: z.number().optional().nullable(),
     max: z.number().optional().nullable(),
     scale_max: z.number().optional().nullable(),
+    // Live responses include scale_min (ratings are not always 0-based).
+    scale_min: z.number().optional().nullable(),
+    min: z.number().optional().nullable(),
     count: z.number().optional().nullable(),
     review_count: z.number().optional().nullable(),
   }),
@@ -105,6 +108,11 @@ export const RawVariantSchema = z.looseObject({
   requires_shipping: z.boolean().optional().nullable(),
   rating: RatingSchema.optional().nullable(),
   seller: SellerSchema.optional().nullable(),
+  // Live responses return condition as an array, e.g. ["new"] / ["refurbished"].
+  condition: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .nullable(),
   inputs: z.array(z.unknown()).optional().nullable(),
 });
 

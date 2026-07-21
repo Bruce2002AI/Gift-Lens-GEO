@@ -1,5 +1,6 @@
 import type { BaseIntent } from "@/lib/modes/types";
 import { detectCareFlags, hedgeInferredValue } from "./safety";
+import { SELF_SUBJECT_ID } from "@/lib/personalization/types";
 import type {
   AgentSession,
   CareFlag,
@@ -28,6 +29,11 @@ export function newSession(id: string, lens: ExpertLensId): AgentSession {
     lens,
     turn: 0,
     createdAtMs: Date.now(),
+    userId: null,
+    activeSubjectId: SELF_SUBJECT_ID,
+    knownSubjects: [],
+    hydratedLenses: [],
+    removedFactKeys: [],
     transcript: [],
     ledger: {
       facts: [],
@@ -57,6 +63,44 @@ export function newSession(id: string, lens: ExpertLensId): AgentSession {
     questionCount: 0,
     factSeq: 0,
   };
+}
+
+/**
+ * Re-point the session at a different subject (person or `self`).
+ *
+ * Facts and the subject-specific shopping constraints (budget, deadline,
+ * exclusions) describe the PREVIOUS person, so they are cleared and the caller
+ * re-hydrates the new subject straight after. The product caches are cleared
+ * too: a shirt found for Rajesh must never resurface as a pick for Priya.
+ *
+ * What stays is account-level or safety context: currency/country, care flags
+ * (safety is sticky and must not regress on a switch) and consents. Returns
+ * whether the subject actually changed.
+ */
+export function switchSubject(session: AgentSession, subjectId: string): boolean {
+  if (session.activeSubjectId === subjectId) return false;
+  session.activeSubjectId = subjectId;
+
+  session.ledger.facts = [];
+  const c = session.ledger.constraints;
+  c.budgetMaxMinor = null;
+  c.budgetMinMinor = null;
+  c.deadline = null;
+  c.exclusions = [];
+
+  // Re-hydration is keyed on this — clear it so the new subject reloads.
+  session.hydratedLenses = [];
+  // Pending removals referred to the previous subject's ledger ids.
+  session.removedFactKeys = [];
+
+  // Product context is per-person: drop it so the next turn searches fresh.
+  session.evidence.clear();
+  session.candidates.clear();
+  session.searchHits.clear();
+  session.boardedIds.clear();
+  session.budgetScreenedCap.clear();
+
+  return true;
 }
 
 /** Normalize for quote-in-transcript checks: lowercase, collapse whitespace, fold curly quotes. */
@@ -116,6 +160,8 @@ export function applyFactPatches(
       provenance,
       quote,
       turn: session.turn,
+      // Stamp the lens now: a later lens switch must not re-file this fact.
+      lens: session.lens,
     });
   }
   // Ledger bloat guard.
@@ -193,6 +239,18 @@ export function applyOp(
     const fact = session.ledger.facts[idx];
     if (op.remove) {
       session.ledger.facts.splice(idx, 1);
+      // Persistence is additive, so record the removal explicitly — otherwise
+      // the stored copy survives and the fact returns on the next session.
+      // Tag with the lens it was learned in (session lens for a hydrated
+      // fact), so persistence deletes the right lens's copy and no other.
+      const removedLens = fact.lens ?? session.lens;
+      if (
+        !session.removedFactKeys.some(
+          (r) => r.lens === removedLens && r.key === fact.key,
+        )
+      ) {
+        session.removedFactKeys.push({ lens: removedLens, key: fact.key });
+      }
       return `The user REMOVED this from your understanding: "${fact.key}: ${fact.value}". Do not rely on it again; acknowledge the correction.`;
     }
     const newValue = (op.newValue ?? "").trim();

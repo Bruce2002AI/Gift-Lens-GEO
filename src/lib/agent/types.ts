@@ -1,5 +1,13 @@
 import { z } from "zod";
-import type { CatalogSource, NormalizedProduct } from "@/lib/catalog/types";
+import type {
+  CatalogSource,
+  NormalizedImage,
+  NormalizedOption,
+  NormalizedProduct,
+  NormalizedRating,
+  NormalizedSeller,
+  NormalizedSpec,
+} from "@/lib/catalog/types";
 
 /**
  * The Expert Loop contract (see docs/AI-EXPERIENCE-REDESIGN.md).
@@ -21,6 +29,19 @@ export function isExpertLens(id: string | null | undefined): id is ExpertLensId 
 }
 
 // ---------------------------------------------------------------------------
+// Subjects — who a conversation is about (self, or a named person)
+// ---------------------------------------------------------------------------
+
+/** A client-safe subject summary — powers the sidebar profile switcher. */
+export interface SubjectSummary {
+  subjectId: string;
+  name: string;
+  relationship: string | null;
+  kind: "self" | "person";
+  createdBy: "user" | "agent";
+}
+
+// ---------------------------------------------------------------------------
 // Session Ledger — the agent's provenance-tagged working memory
 // ---------------------------------------------------------------------------
 
@@ -36,6 +57,13 @@ export interface LedgerFact {
   /** The user's own words — required when provenance is "said". */
   quote: string | null;
   turn: number;
+  /**
+   * The lens this was learned under. A session can switch lenses mid-chat, so
+   * without this the whole accumulated ledger would be persisted under whatever
+   * lens happens to be active at the end of the turn.
+   * Absent on facts hydrated from storage (they are never re-persisted).
+   */
+  lens?: ExpertLensId;
 }
 
 export interface LedgerConstraints {
@@ -94,6 +122,39 @@ export interface AgentSession {
   lens: ExpertLensId;
   turn: number;
   createdAtMs: number;
+  /**
+   * The signed-in shopper this session belongs to (null when anonymous).
+   * Bound on first use; a request presenting this session id under a DIFFERENT
+   * user is never allowed to adopt it, because the ledger may already hold the
+   * first shopper's remembered profile.
+   */
+  userId: string | null;
+  /**
+   * WHO this conversation is currently about — `self` (the account owner) by
+   * default, or a person's subject id once the shopper names someone. Facts are
+   * hydrated and persisted under this subject, so the picks are for THEM.
+   */
+  activeSubjectId: string;
+  /**
+   * The shopper's known people (self excluded is fine — the UI prepends it),
+   * cached so the prompt can list "profiles you can switch to" and the loop can
+   * resolve a mid-chat name without a DB hit. Refreshed each turn.
+   */
+  knownSubjects: SubjectSummary[];
+  /**
+   * Lenses whose stored profile has been loaded into this session's ledger FOR
+   * THE ACTIVE SUBJECT. Reset when the subject switches, so the new person's
+   * memory is loaded rather than the previous one's reused.
+   */
+  hydratedLenses: ExpertLensId[];
+  /**
+   * Facts the shopper explicitly removed via the Portrait panel this session,
+   * each tagged with the lens it was learned in. Persistence is otherwise
+   * additive, so without this a deleted fact reappears next session — and the
+   * lens tag is essential: allergies.list is a DIFFERENT fact per lens, so the
+   * delete must be scoped, never applied across every lens.
+   */
+  removedFactKeys: Array<{ lens: ExpertLensId; key: string }>;
   transcript: Array<{ role: "user" | "assistant"; content: string; turn: number }>;
   ledger: SessionLedger;
   /** productId → evidence from get_product. Server-side only. */
@@ -325,6 +386,61 @@ export interface VerifiedClaim {
   quote: string;
 }
 
+/** One purchasable variant, with every buying signal UCP returns for it. */
+export interface ProductFactsVariant {
+  id: string;
+  title: string;
+  sku: string | null;
+  priceMinor: number | null;
+  currency: string | null;
+  available: boolean | null;
+  availabilityStatus: string | null;
+  runningLow: boolean | null;
+  requiresShipping: boolean | null;
+  nativeCheckoutEligible: boolean | null;
+  url: string | null;
+  imageUrl: string | null;
+  options: Array<{ name: string; label: string }>;
+  /** e.g. ["new"] / ["refurbished"]. */
+  condition: string[];
+  /** Variants carry their own rating, often differing from the product's. */
+  rating: NormalizedRating;
+  description: string;
+  /** True for the variant this card's price/offer was derived from. */
+  isSelected: boolean;
+}
+
+/**
+ * The complete catalog record for a product, exactly as UCP returned it.
+ *
+ * This is a DIFFERENT stratum from `claims`: claims are model-authored
+ * sentences that the truth layer verifies against evidence, whereas these are
+ * raw catalog facts with no model involvement at all. That's why they can be
+ * rendered verbatim — there is nothing here for a model to have invented.
+ */
+export interface ProductFacts {
+  description: string;
+  handle: string | null;
+  categories: string[];
+  rating: NormalizedRating;
+  /** `metadata.tech_specs` parsed into label/value pairs. */
+  specs: NormalizedSpec[];
+  topFeatures: string[];
+  uniqueSellingPoints: string[];
+  images: NormalizedImage[];
+  options: NormalizedOption[];
+  variants: ProductFactsVariant[];
+  seller: NormalizedSeller | null;
+  priceRange: {
+    minMinor: number | null;
+    maxMinor: number | null;
+    currency: string | null;
+  };
+  /** Availability rollup so the UI can show "3 of 5 in stock" without recomputing. */
+  inStockVariants: number;
+  totalVariants: number;
+}
+
 export interface VerifiedCard {
   productId: string;
   role: string | null;
@@ -345,6 +461,8 @@ export interface VerifiedCard {
   source: CatalogSource;
   /** Evidence freshness — "as of" timestamp of the get_product fetch. */
   asOf: string;
+  /** Full catalog record, powering the expandable "Everything the catalog knows" panel. */
+  facts: ProductFacts;
 }
 
 export interface VerifiedSection {
@@ -368,6 +486,8 @@ export interface VerifiedBoardItem {
   /** Among the agent's top two in this category (used in the compositions). */
   isPick: boolean;
   source: CatalogSource;
+  /** Full catalog record — board items expand to the same detail as picks. */
+  facts: ProductFacts;
 }
 
 export interface VerifiedBoardCategory {
@@ -418,6 +538,21 @@ export interface LedgerView {
 
 export type ExpertEvent =
   | { type: "session"; sessionId: string; lens: ExpertLensId }
+  /**
+   * Who the conversation is about, and the profiles available to switch to.
+   * `announce` is set when THIS turn switched or created a subject, so the UI
+   * can surface "Now shopping for Rajesh (new profile)".
+   */
+  | {
+      type: "subjects";
+      active: string;
+      list: SubjectSummary[];
+      announce: { subjectId: string; name: string; created: boolean } | null;
+      /** True when the products already on the board were for the PREVIOUS
+       *  subject and should be cleared (a pre-turn switch), false when they
+       *  belong to the subject just activated (a mid-turn backstop switch). */
+      staleBoard: boolean;
+    }
   | { type: "say"; text: string }
   | { type: "trace"; kind: "search" | "inspect" | "note"; label: string; detail?: string; ok?: boolean }
   | { type: "ledger"; view: LedgerView }
@@ -426,6 +561,43 @@ export type ExpertEvent =
   | { type: "propose"; summary: string; sections: Array<{ title: string; detail: string }> }
   | { type: "present"; presentation: VerifiedPresentation }
   | { type: "limitation"; text: string }
+  /**
+   * Profile fields the agent just learned, pushed so the always-visible form
+   * fills itself mid-conversation. Structurally identical to ProfileFact —
+   * declared inline because personalization/types imports from this module,
+   * and importing it back would be a cycle.
+   */
+  | {
+      type: "profile";
+      facts: Array<{
+        id: string;
+        subjectId: string;
+        lens: string;
+        category: string;
+        key: string;
+        value: string | number | boolean | string[];
+        source: "explicit" | "imported" | "behavioral" | "inferred";
+        confidence: number;
+        sensitivity: "standard" | "personal" | "health";
+        consentScope: "lens_only" | "approved_cross_lens";
+        quote: string | null;
+        lastConfirmedAt: string | null;
+        expiresAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }
+  /** Remembered profile signals shaping this turn — powers "Personalized because…". */
+  | {
+      type: "personalization";
+      signals: Array<{
+        factId: string;
+        label: string;
+        value: string;
+        source: "explicit" | "imported" | "behavioral" | "inferred";
+        needsConfirmation: boolean;
+      }>;
+    }
   | { type: "notice"; tone: "mock" | "degraded" | "info"; text: string }
   | { type: "done"; terminal: "ask" | "present" | "propose" | "degraded" | "error" }
   | { type: "error"; message: string };
@@ -454,5 +626,17 @@ export const ExpertRequestSchema = z.object({
     .nullish(),
   /** Image for catalog visual similarity — the agent is told it has NOT seen it. */
   imageDataUrl: z.string().nullish(),
+  /**
+   * Switch the active profile. `id` picks an existing subject (or "self");
+   * `name` (no id) creates a new person profile. Sent by the sidebar switcher
+   * and the "New profile" control, and can accompany a message or stand alone.
+   */
+  setSubject: z
+    .object({
+      id: z.string().max(64).nullish(),
+      name: z.string().max(80).nullish(),
+      relationship: z.string().max(60).nullish(),
+    })
+    .nullish(),
 });
 export type ExpertRequest = z.infer<typeof ExpertRequestSchema>;

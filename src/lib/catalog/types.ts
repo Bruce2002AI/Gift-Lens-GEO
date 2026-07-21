@@ -15,6 +15,26 @@ export interface CatalogMessage {
 export interface NormalizedImage {
   url: string;
   altText: string | null;
+  /** "image" | "video" | … — UCP labels each media item; lets the UI pick a player. */
+  type: string | null;
+}
+
+/** A rating with its scale, so "4.7" is never shown without knowing it's out of 5. */
+export interface NormalizedRating {
+  value: number | null;
+  scaleMin: number | null;
+  scaleMax: number | null;
+  count: number | null;
+}
+
+/**
+ * `metadata.tech_specs` arrives as newline-separated "Label: value" lines.
+ * Parsing it into pairs turns an opaque blob into a real spec table; lines
+ * without a colon are preserved as `label: null` so nothing is lost.
+ */
+export interface NormalizedSpec {
+  label: string;
+  value: string | null;
 }
 
 export interface NormalizedOptionValue {
@@ -53,6 +73,12 @@ export interface NormalizedVariant {
   imageUrl: string | null;
   options: Array<{ name: string; label: string }>;
   seller: NormalizedSeller | null;
+  /** Variants carry their own copy text — often more specific than the product's. */
+  description: string;
+  /** Variants carry their own rating, which can differ from the product's. */
+  rating: NormalizedRating;
+  /** e.g. ["new"], ["refurbished"] — a real buying signal, so never dropped. */
+  condition: string[];
 }
 
 export interface NormalizedProduct {
@@ -60,6 +86,8 @@ export interface NormalizedProduct {
   title: string;
   description: string;
   url: string | null;
+  /** Merchant handle/slug, when the catalog returns one. */
+  handle: string | null;
   categories: Array<{ value: string; taxonomy?: string }>;
   images: NormalizedImage[];
   priceRange: {
@@ -69,15 +97,19 @@ export interface NormalizedProduct {
   };
   options: NormalizedOption[];
   variants: NormalizedVariant[];
-  rating: {
-    value: number | null;
-    scaleMax: number | null;
-    count: number | null;
-  };
+  rating: NormalizedRating;
+  /**
+   * Product-level seller. UCP reports the seller per variant, so this is the
+   * first variant seller — surfaced here because the storefront + its policy
+   * links (refund/privacy/terms) are trust signals the shopper needs up front.
+   */
+  seller: NormalizedSeller | null;
   metadata: {
     techSpecs: string[];
     topFeatures: string[];
     uniqueSellingPoints: string[];
+    /** techSpecs parsed into label/value pairs for a real spec table. */
+    specs: NormalizedSpec[];
   };
   rawMessages: CatalogMessage[];
 }

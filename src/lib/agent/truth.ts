@@ -6,6 +6,8 @@ import { interpretationViolations, isSupplementCategory, lintOutbound } from "./
 import type {
   AgentSession,
   Presentation,
+  ProductFacts,
+  ProductFactsVariant,
   VerifiedBoardCategory,
   VerifiedBoardItem,
   VerifiedCard,
@@ -14,6 +16,55 @@ import type {
   VerifiedPresentation,
   VerifiedSection,
 } from "./types";
+
+/**
+ * Project the complete catalog record onto the wire shape the UI expands.
+ *
+ * A pure projection of `NormalizedProduct` — no model text passes through here,
+ * so nothing needs lint/verification: these are the catalog's own facts, which
+ * is precisely why they can be shown verbatim next to the verified claims.
+ */
+export function buildProductFacts(
+  product: NormalizedProduct,
+  selectedVariantId: string | null,
+): ProductFacts {
+  const variants: ProductFactsVariant[] = product.variants.map((v) => ({
+    id: v.id,
+    title: v.title,
+    sku: v.sku,
+    priceMinor: v.priceMinor,
+    currency: v.currency,
+    available: v.available,
+    availabilityStatus: v.availabilityStatus,
+    runningLow: v.runningLow,
+    requiresShipping: v.requiresShipping,
+    nativeCheckoutEligible: v.nativeCheckoutEligible,
+    url: v.url,
+    imageUrl: v.imageUrl,
+    options: v.options,
+    condition: v.condition,
+    rating: v.rating,
+    description: v.description,
+    isSelected: selectedVariantId != null && v.id === selectedVariantId,
+  }));
+
+  return {
+    description: product.description,
+    handle: product.handle,
+    categories: product.categories.map((c) => c.value),
+    rating: product.rating,
+    specs: product.metadata.specs,
+    topFeatures: product.metadata.topFeatures,
+    uniqueSellingPoints: product.metadata.uniqueSellingPoints,
+    images: product.images,
+    options: product.options,
+    variants,
+    seller: product.seller,
+    priceRange: product.priceRange,
+    inStockVariants: variants.filter((v) => v.available === true).length,
+    totalVariants: variants.length,
+  };
+}
 
 /**
  * The truth layer (docs/AI-EXPERIENCE-REDESIGN.md §7): every pixel crosses this
@@ -236,11 +287,22 @@ export function selectOffer(product: NormalizedProduct): {
 /**
  * The lowest price we'll show against a stated budget. Catalog data carries
  * rounding-error listings — a ₹1 "wholesale button", a ₹15 "moisturiser Mrp 15"
- * — that are almost always mis-scraped, not bargains. Screen anything under 2%
- * of the budget (currency-relative), with a ₹1 floor when no budget is set.
+ * — that are almost always mis-scraped, not bargains.
+ *
+ * The screen is 2% of the budget, but CAPPED: this guard exists to catch
+ * absurd data, not to impose a minimum price. Uncapped, a ₹50,000 budget
+ * produced a ₹1,000 floor and silently discarded perfectly real ₹900 gifts —
+ * and even a ₹5,000 budget threw away a legitimate ₹99 clay-tool set. Ten
+ * currency units is comfortably above mis-scraped listings (which cluster at
+ * 0-5) and safely below anything genuinely purchasable, including the cheap
+ * pantry staples the nutrition lens needs.
  */
+const JUNK_FLOOR_CAP_MINOR = 1000;
+
 export function junkPriceFloorMinor(budgetMaxMinor: number | null): number {
-  return budgetMaxMinor != null ? Math.max(100, Math.round(budgetMaxMinor * 0.02)) : 100;
+  if (budgetMaxMinor == null) return 100;
+  const proportional = Math.max(100, Math.round(budgetMaxMinor * 0.02));
+  return Math.min(proportional, JUNK_FLOOR_CAP_MINOR);
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +394,7 @@ export function notarizeBoardItem(
     tradeoff,
     isPick: input.isPick ?? false,
     source: entry.source,
+    facts: buildProductFacts(product, offer.variant?.id ?? null),
   };
 }
 
@@ -448,6 +511,7 @@ export function verifyPresentation(
         logistics: logisticsMessage(product, intent),
         source: entry.source,
         asOf: entry.fetchedAt,
+        facts: buildProductFacts(product, offer.variant?.id ?? null),
       });
     }
 
@@ -528,7 +592,10 @@ export function verifyPresentation(
       rationale: lintOutbound(c.rationale).text,
       productIds: c.productIds.filter((id) => shown.has(id)),
     }))
-    .filter((c) => c.productIds.length > 0 && c.rationale.length > 0);
+    // A "way to put it together" needs at least two pieces — a set of one is
+    // just a pick, and rendering it as "1 option" is exactly the emptiness the
+    // shopper called out. Let the board carry the single ideas instead.
+    .filter((c) => c.productIds.length >= 2 && c.rationale.length > 0);
 
   const followUpText = raw.followUp ? lintOutbound(raw.followUp.text).text : "";
   const fork = raw.followUp?.fork

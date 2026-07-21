@@ -1,8 +1,11 @@
 import { htmlToPlainText, isRecord } from "@/lib/utils";
 import type {
   CatalogMessage,
+  NormalizedImage,
   NormalizedProduct,
+  NormalizedRating,
   NormalizedSeller,
+  NormalizedSpec,
   NormalizedVariant,
 } from "./types";
 import type {
@@ -35,9 +38,9 @@ function normalizeDescription(
 
 function normalizeMedia(
   media: RawProduct["media"] | RawProduct["images"],
-): Array<{ url: string; altText: string | null }> {
+): NormalizedImage[] {
   if (!Array.isArray(media)) return [];
-  const out: Array<{ url: string; altText: string | null }> = [];
+  const out: NormalizedImage[] = [];
   for (const m of media) {
     if (!isRecord(m)) continue;
     const url =
@@ -49,18 +52,18 @@ function normalizeMedia(
       (typeof m.alt_text === "string" && m.alt_text) ||
       (typeof m.alt === "string" && m.alt) ||
       null;
-    out.push({ url, altText: alt });
+    out.push({
+      url,
+      altText: alt,
+      type: typeof m.type === "string" ? m.type : null,
+    });
   }
   return out;
 }
 
-function normalizeRating(rating: RawProduct["rating"]): {
-  value: number | null;
-  scaleMax: number | null;
-  count: number | null;
-} {
+function normalizeRating(rating: RawProduct["rating"]): NormalizedRating {
   if (typeof rating === "number") {
-    return { value: rating, scaleMax: 5, count: null };
+    return { value: rating, scaleMin: null, scaleMax: 5, count: null };
   }
   if (isRecord(rating)) {
     const value =
@@ -79,15 +82,52 @@ function normalizeRating(rating: RawProduct["rating"]): {
           : value !== null
             ? 5
             : null;
+    const scaleMin =
+      typeof rating.scale_min === "number"
+        ? rating.scale_min
+        : typeof rating.min === "number"
+          ? rating.min
+          : null;
     const count =
       typeof rating.count === "number"
         ? rating.count
         : typeof rating.review_count === "number"
           ? rating.review_count
           : null;
-    return { value, scaleMax, count };
+    return { value, scaleMin, scaleMax, count };
   }
-  return { value: null, scaleMax: null, count: null };
+  return { value: null, scaleMin: null, scaleMax: null, count: null };
+}
+
+/**
+ * `metadata.tech_specs` is newline-separated "Label: value" lines. Split on the
+ * FIRST colon only — values legitimately contain colons (ratios, times) — and
+ * keep colon-less lines as label-only so no catalog text is silently dropped.
+ */
+export function parseSpecs(lines: string[]): NormalizedSpec[] {
+  const out: NormalizedSpec[] = [];
+  for (const line of lines) {
+    const idx = line.indexOf(":");
+    if (idx > 0 && idx < line.length - 1) {
+      const label = line.slice(0, idx).trim();
+      const value = line.slice(idx + 1).trim();
+      if (label) out.push({ label, value: value || null });
+    } else if (line.trim()) {
+      out.push({ label: line.trim(), value: null });
+    }
+  }
+  return out;
+}
+
+/** Condition arrives as string[] or a bare string; normalize to a clean list. */
+function normalizeCondition(
+  condition: RawVariant["condition"],
+): string[] {
+  if (Array.isArray(condition)) {
+    return condition.filter((c) => typeof c === "string" && c.trim()).map((c) => c.trim());
+  }
+  if (typeof condition === "string" && condition.trim()) return [condition.trim()];
+  return [];
 }
 
 function normalizeSeller(seller: RawVariant["seller"]): NormalizedSeller | null {
@@ -177,6 +217,9 @@ export function normalizeVariant(
     imageUrl: media[0]?.url ?? imageFromSingle,
     options: normalizeVariantOptions(v),
     seller: normalizeSeller(v.seller) ?? productSeller,
+    description: normalizeDescription(v.description),
+    rating: normalizeRating(v.rating),
+    condition: normalizeCondition(v.condition),
   };
 }
 
@@ -249,21 +292,28 @@ export function normalizeCatalogProduct(p: RawProduct): NormalizedProduct {
     }),
   }));
 
+  const techSpecs = toStringList(p.metadata?.tech_specs);
+
   return {
     id: toStringId(p.id),
     title: p.title ?? "",
     description: normalizeDescription(p.description),
     url: typeof p.url === "string" ? p.url : null,
+    handle: typeof p.handle === "string" ? p.handle : null,
     categories: normalizeCategories(p),
     images: normalizeMedia(p.media ?? p.images),
     priceRange: { minMinor, maxMinor, currency },
     options,
     variants,
     rating: normalizeRating(p.rating),
+    // UCP reports the seller per variant; expose the first one product-level so
+    // the storefront and its policy links are available without digging.
+    seller: productSeller ?? variants.find((v) => v.seller)?.seller ?? null,
     metadata: {
-      techSpecs: toStringList(p.metadata?.tech_specs),
+      techSpecs,
       topFeatures: toStringList(p.metadata?.top_features),
       uniqueSellingPoints: toStringList(p.metadata?.unique_selling_points),
+      specs: parseSpecs(techSpecs),
     },
     rawMessages: [],
   };

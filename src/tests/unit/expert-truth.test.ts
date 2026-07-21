@@ -16,7 +16,12 @@ import {
   sniffSupplementConsent,
 } from "@/lib/agent/safety";
 import { topUpBoard } from "@/lib/agent/board";
-import { notarizeBoardItem, verifyClaim, verifyPresentation } from "@/lib/agent/truth";
+import {
+  junkPriceFloorMinor,
+  notarizeBoardItem,
+  verifyClaim,
+  verifyPresentation,
+} from "@/lib/agent/truth";
 import { TraceCollector } from "@/lib/catalog/trace";
 import type { AgentSession, CardSpec, Presentation } from "@/lib/agent/types";
 import type { NormalizedProduct } from "@/lib/catalog/types";
@@ -28,8 +33,9 @@ function product(overrides: Partial<NormalizedProduct> = {}): NormalizedProduct 
     description:
       "Precision stainless steel burrs grind evenly. The body is 100% walnut wood. Fragrance-free packaging.",
     url: "https://example.com/p1",
+    handle: "manual-burr-coffee-grinder",
     categories: [{ value: "Kitchen > Coffee" }],
-    images: [{ url: "https://example.com/img.jpg", altText: null }],
+    images: [{ url: "https://example.com/img.jpg", altText: null, type: "image" }],
     priceRange: { minMinor: 250000, maxMinor: 250000, currency: "INR" },
     options: [],
     variants: [
@@ -49,10 +55,19 @@ function product(overrides: Partial<NormalizedProduct> = {}): NormalizedProduct 
         imageUrl: null,
         options: [],
         seller: { id: null, name: "Brew Co", url: null, domain: null, policyLinks: [] },
+        description: "",
+        rating: { value: null, scaleMin: null, scaleMax: null, count: null },
+        condition: ["new"],
       },
     ],
-    rating: { value: 4.6, scaleMax: 5, count: 120 },
-    metadata: { techSpecs: [], topFeatures: ["ceramic-free burr set"], uniqueSellingPoints: [] },
+    rating: { value: 4.6, scaleMin: 1, scaleMax: 5, count: 120 },
+    seller: { id: null, name: "Brew Co", url: null, domain: null, policyLinks: [] },
+    metadata: {
+      techSpecs: [],
+      topFeatures: ["ceramic-free burr set"],
+      uniqueSellingPoints: [],
+      specs: [],
+    },
     rawMessages: [],
     ...overrides,
   };
@@ -465,6 +480,24 @@ describe("notarizeBoardItem — the shared board admission standard", () => {
     // Untrusted (model-authored) interpretation may not assert prices.
     expect(notarizeBoardItem(s, { productId: "p1", insight }, intent)).toBeNull();
   });
+  /**
+   * The floor screens absurd catalog data, not inexpensive products. Uncapped
+   * it scaled with the budget, so a ₹50,000 budget discarded real ₹900 gifts
+   * and a ₹5,000 budget threw away a legitimate ₹99 clay-tool set.
+   */
+  it("caps the junk-price floor so real cheap products survive a big budget", () => {
+    expect(junkPriceFloorMinor(null)).toBe(100);
+    // Small budget: still proportional.
+    expect(junkPriceFloorMinor(20000)).toBe(400);
+    // Large budgets are capped rather than scaling without bound.
+    expect(junkPriceFloorMinor(500000)).toBe(1000);
+    expect(junkPriceFloorMinor(5000000)).toBe(1000);
+    // A ₹99 item clears the floor under a ₹5,000 budget…
+    expect(9900).toBeGreaterThan(junkPriceFloorMinor(500000));
+    // …while a ₹1 mis-scrape still does not.
+    expect(100).toBeLessThan(junkPriceFloorMinor(500000));
+  });
+
   it("refuses missing evidence, junk prices, and foreign currencies", () => {
     const s = sessionWith(product(), 400000);
     const intent = ledgerToBaseIntent(s.ledger);

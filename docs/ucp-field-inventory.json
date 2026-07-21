@@ -1,0 +1,274 @@
+{
+  "capturedAt": "2026-07-20T15:28:59.494Z",
+  "searchFields": {
+    "id": [
+      "string",
+      "e.g. \"gid://shopify/p/69GyNfKISHpuI0MuTuYKtN\"",
+      "e.g. \"gid://shopify/p/27Kno9QaYp8GhXD3NnZdtN\""
+    ],
+    "title": [
+      "string",
+      "e.g. \"Light On Serum : Centella + Vita C\"",
+      "e.g. \"Dermalogica Biolumin-C Vitamin C Serum\""
+    ],
+    "description.plain": [
+      "string"
+    ],
+    "rating.value": [
+      "number"
+    ],
+    "rating.scale_min": [
+      "number"
+    ],
+    "rating.scale_max": [
+      "number"
+    ],
+    "rating.count": [
+      "number"
+    ],
+    "options[].name": [
+      "string",
+      "e.g. \"Size\""
+    ],
+    "options[].values[].label": [
+      "string",
+      "e.g. \"30ml\""
+    ],
+    "metadata.unique_selling_points[]": [
+      "string"
+    ],
+    "metadata.top_features": [
+      "string"
+    ],
+    "metadata.tech_specs": [
+      "string"
+    ],
+    "media[].type": [
+      "string",
+      "e.g. \"image\""
+    ],
+    "media[].url": [
+      "string"
+    ],
+    "media[].alt_text": [
+      "string",
+      "e.g. \"Beauty of Joseon Light On Serum : Centella + Vita C\"",
+      "e.g. \"100% Pure - Vitamin C Serum (30ml)\""
+    ],
+    "variants[].id": [
+      "string",
+      "e.g. \"gid://shopify/ProductVariant/42465032601765\"",
+      "e.g. \"gid://shopify/ProductVariant/51446418407787\""
+    ],
+    "variants[].title": [
+      "string",
+      "e.g. \"Light On Serum : Centella + Vita C\"",
+      "e.g. \"Dermalogica Biolumin-C Vitamin C Serum\""
+    ],
+    "variants[].description.plain": [
+      "string"
+    ],
+    "variants[].url": [
+      "string"
+    ],
+    "variants[].price.amount": [
+      "number"
+    ],
+    "variants[].price.currency": [
+      "string",
+      "e.g. \"INR\""
+    ],
+    "variants[].availability.available": [
+      "boolean"
+    ],
+    "variants[].media[].type": [
+      "string",
+      "e.g. \"image\""
+    ],
+    "variants[].media[].url": [
+      "string"
+    ],
+    "variants[].media[].alt_text": [
+      "string",
+      "e.g. \"Beauty of Joseon Light On Serum : Centella + Vita C\"",
+      "e.g. \"100% Pure - Vitamin C Serum (30ml)\""
+    ],
+    "variants[].seller.id": [
+      "string",
+      "e.g. \"gid://shopify/Shop/55841357989\"",
+      "e.g. \"gid://shopify/Shop/51380551830\""
+    ],
+    "variants[].seller.name": [
+      "string",
+      "e.g. \"Beauty of Joseon\"",
+      "e.g. \"SkincareEssentials\""
+    ],
+    "variants[].seller.url": [
+      "string",
+      "e.g. \"https://beautyofjoseon.com\"",
+      "e.g. \"https://skincareessentials.com\""
+    ],
+    "variants[].seller.domain": [
+      "string",
+      "e.g. \"beauty-of-joeon-official.myshopify.com\"",
+      "e.g. \"xyzskincare.myshopify.com\""
+    ],
+    "variants[].seller.links[].type": [
+      "string",
+      "e.g. \"privacy_policy\"",
+      "e.g. \"terms_of_service\""
+    ],
+    "variants[].seller.links[].url": [
+      "string"
+    ],
+    "variants[].checkout_url": [
+      "string"
+    ],
+    "variants[].rating.value": [
+      "number"
+    ],
+    "variants[].rating.scale_min": [
+      "number"
+    ],
+    "variants[].rating.scale_max": [
+      "number"
+    ],
+    "variants[].rating.count": [
+      "number"
+    ],
+    "variants[].condition[]": [
+      "string",
+      "e.g. \"new\""
+    ],
+    "variants[].eligible.native_checkout": [
+      "boolean"
+    ],
+    "price_range.min.amount": [
+      "number"
+    ],
+    "price_range.min.currency": [
+      "string",
+      "e.g. \"INR\""
+    ],
+    "price_range.max.amount": [
+      "number"
+    ],
+    "price_range.max.currency": [
+      "string",
+      "e.g. \"INR\""
+    ]
+  },
+  "detailFields": {
+    "": [
+      "undefined"
+    ]
+  },
+  "sampleSearchProduct": {
+    "id": "gid://shopify/p/69GyNfKISHpuI0MuTuYKtN",
+    "title": "Light On Serum : Centella + Vita C",
+    "description": {
+      "plain": "A lightweight, non-greasy vitamin C serum with centella asiatica to brighten skin and provide intensive hydration without irritation."
+    },
+    "rating": {
+      "value": 4.7,
+      "scale_min": 1,
+      "scale_max": 5,
+      "count": 2753
+    },
+    "options": [
+      {
+        "name": "Size",
+        "values": [
+          {
+            "label": "30ml"
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "unique_selling_points": [
+        "Combines stable vitamin C with centella asiatica extract in a non-sticky, fast-absorbing formula for brightening and soothing."
+      ],
+      "top_features": "10-3% O-ethyl ascorbic acid (stable vitamin C) delivers brightening and antioxidant protection\n68% centella asiatica extract soothes irritation and supports skin barrier repair\nLightweight, non-greasy texture absorbs quickly for comfortable daily use\nIntensive hydration maintains skin moisture without heaviness\nAirless pump packaging preserves serum efficacy and prevents contamination",
+      "tech_specs": "Active Ingredients: 10-3% O-ethyl ascorbic acid, 68% centella asiatica extract\nProduct Form: Serum\nVolume: 30 ml\nTexture: Non-greasy, smooth\nTarget Area: Face\nSuitable for Skin Types: All skin types, including sensitive and dry"
+    },
+    "media": [
+      {
+        "type": "image",
+        "url": "https://cdn.shopify.com/s/files/1/0558/4135/7989/files/light-on-serum-centella-vita-c-1-front.webp",
+        "alt_text": "Beauty of Joseon Light On Serum : Centella + Vita C"
+      }
+    ],
+    "variants": [
+      {
+        "id": "gid://shopify/ProductVariant/42465032601765",
+        "title": "Light On Serum : Centella + Vita C",
+        "description": {
+          "plain": "A lightweight vitamin C serum with Centella asiatica that helps brighten, target skin texture, and soothe. Non-sticky and non-greasy. Read More"
+        },
+        "url": "https://beautyofjoseon.com/products/light-on-serum-centella-vita-c?variant=42465032601765&_gsid=NYmDN6UFg48T",
+        "price": {
+          "amount": 170000,
+          "currency": "INR"
+        },
+        "availability": {
+          "available": true
+        },
+        "media": [
+          {
+            "type": "image",
+            "url": "https://cdn.shopify.com/s/files/1/0558/4135/7989/files/light-on-serum-centella-vita-c-1-front.webp",
+            "alt_text": "Beauty of Joseon Light On Serum : Centella + Vita C"
+          }
+        ],
+        "seller": {
+          "id": "gid://shopify/Shop/55841357989",
+          "name": "Beauty of Joseon",
+          "url": "https://beautyofjoseon.com",
+          "domain": "beauty-of-joeon-official.myshopify.com",
+          "links": [
+            {
+              "type": "privacy_policy",
+              "url": "https://checkout.shopify.com/55841357989/policies/25545441445.html"
+            },
+            {
+              "type": "terms_of_service",
+              "url": "https://checkout.shopify.com/55841357989/policies/25545474213.html"
+            },
+            {
+              "type": "refund_policy",
+              "url": "https://checkout.shopify.com/55841357989/policies/25545408677.html"
+            },
+            {
+              "type": "shipping_policy",
+              "url": "https://checkout.shopify.com/55841357989/policies/25545506981.html"
+            }
+          ]
+        },
+        "checkout_url": "https://beautyofjoseon.com/cart/42465032601765:1?_gsid=NYmDN6UFg48T",
+        "rating": {
+          "value": 4.9,
+          "scale_min": 1,
+          "scale_max": 5,
+          "count": 1144
+        },
+        "condition": [
+          "new"
+        ],
+        "eligible": {
+          "native_checkout": false
+        }
+      }
+    ],
+    "price_range": {
+      "min": {
+        "amount": 170000,
+        "currency": "INR"
+      },
+      "max": {
+        "amount": 170000,
+        "currency": "INR"
+      }
+    }
+  }
+}

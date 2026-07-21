@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import {
   ChevronDown,
   HeartHandshake,
   ImagePlus,
   Info,
+  Loader2,
   PackageSearch,
   Search,
   Send,
@@ -20,6 +22,7 @@ import {
   type ExpertRequest,
   type Fork,
   type LedgerView,
+  type SubjectSummary,
   type VerifiedBoardCategory,
   type VerifiedBoardItem,
   type VerifiedPresentation,
@@ -31,6 +34,15 @@ import { FilterBar } from "@/components/expert/FilterBar";
 import { PortraitPanel } from "@/components/expert/PortraitPanel";
 import { PresentationView } from "@/components/expert/PresentationView";
 import { ProductBoard, type BoardSort } from "@/components/expert/ProductBoard";
+import { OutcomePrompt } from "@/components/personalization/OutcomePrompt";
+import { PersonalizedBecause } from "@/components/personalization/PersonalizedBecause";
+import {
+  ProfilePanel,
+  type ProfileFactWire,
+} from "@/components/personalization/ProfilePanel";
+import { SubjectSwitcher } from "@/components/personalization/SubjectSwitcher";
+import type { PersonalizationSignal } from "@/lib/personalization/ledger-bridge";
+import type { Outcome } from "@/lib/personalization/types";
 import { RichText } from "@/components/expert/RichText";
 
 // ---------------------------------------------------------------------------
@@ -164,11 +176,25 @@ function ResultsSkeleton() {
 }
 
 export default function ExpertShopPage() {
+  const { status: authStatus } = useSession();
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [lens, setLens] = useState<ExpertLensId | null>(null);
   const [ledger, setLedger] = useState<LedgerView | null>(null);
   const [board, setBoard] = useState<VerifiedBoardCategory[]>([]);
+  /** Profile signals the agent remembered — drives the "Personalized because…" strip. */
+  const [signals, setSignals] = useState<PersonalizationSignal[]>([]);
+  /** Facts the agent learned this session, accumulated so the panel fills live. */
+  const [learnedFacts, setLearnedFacts] = useState<ProfileFactWire[]>([]);
+  /** The people the shopper has profiles for; "You" is always first. */
+  const [subjects, setSubjects] = useState<SubjectSummary[]>([
+    { subjectId: "self", name: "You", relationship: null, kind: "self", createdBy: "user" },
+  ]);
+  /** Whose profile the conversation is currently about. */
+  const [activeSubjectId, setActiveSubjectId] = useState<string>("self");
+  /** The listing the shopper just opened — we ask one outcome question about it. */
+  const [outcomeFor, setOutcomeFor] = useState<VerifiedBoardItem | null>(null);
+  const [outcomeBusy, setOutcomeBusy] = useState(false);
   const [portraitCollapsed, setPortraitCollapsed] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [input, setInput] = useState("");
@@ -177,6 +203,11 @@ export default function ExpertShopPage() {
 
   const idRef = useRef(0);
   const autoCollapsedRef = useRef(false);
+  /** The active subject the last `subjects` event reported — detects switches. */
+  const activeSubjectRef = useRef("self");
+  /** Just THIS turn's board, so a mid-turn backstop switch keeps the new
+   *  person's picks without the previous subject's accumulated ones. */
+  const lastPresentBoardRef = useRef<VerifiedBoardCategory[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -227,8 +258,51 @@ export default function ExpertShopPage() {
           setSessionId(event.sessionId);
           setLens(event.lens);
           break;
+        case "subjects": {
+          setSubjects(event.list);
+          const switched = event.active !== activeSubjectRef.current;
+          activeSubjectRef.current = event.active;
+          setActiveSubjectId(event.active);
+          if (switched) {
+            // The previous subject's remembered signals and learned facts no
+            // longer apply — reset them, or the "Personalized because…" strip
+            // and the form would show the last person's data under the new name.
+            setLearnedFacts([]);
+            setSignals([]);
+            autoCollapsedRef.current = false;
+            setPortraitCollapsed(false);
+            setSort("picks");
+            // Board attribution: a PRE-turn switch invalidates the whole
+            // accumulated board; a mid-turn BACKSTOP keeps only this turn's picks
+            // (which already belong to the newly-named person).
+            setBoard(event.staleBoard ? [] : lastPresentBoardRef.current);
+          }
+          if (event.announce) {
+            const { name, subjectId, created } = event.announce;
+            pushItem({
+              kind: "notice",
+              tone: "info",
+              text:
+                subjectId === "self"
+                  ? "Back to your own profile."
+                  : created
+                    ? `New profile created for ${name} — now shopping for them. Only their profile is open on the right.`
+                    : `Now shopping for ${name}. Their profile is open on the right.`,
+            });
+          }
+          break;
+        }
         case "ledger":
           setLedger(event.view);
+          break;
+        case "personalization":
+          // Remembered profile signals that shaped this turn.
+          setSignals(event.signals);
+          break;
+        case "profile":
+          // Only what changed this turn, so it accumulates — the panel merges
+          // these into the profile it fetched rather than replacing it.
+          setLearnedFacts((prev) => [...prev, ...event.facts]);
           break;
         case "done":
           break;
@@ -248,6 +322,9 @@ export default function ExpertShopPage() {
           pushItem({ kind: "propose", summary: event.summary, sections: event.sections });
           break;
         case "present":
+          // Remember this turn's board alone, so a mid-turn backstop switch can
+          // keep just these picks for the newly-named person.
+          lastPresentBoardRef.current = event.presentation.board;
           setBoard((prev) => mergeBoard(prev, event.presentation.board));
           pushItem({ kind: "present", presentation: event.presentation });
           break;
@@ -275,6 +352,9 @@ export default function ExpertShopPage() {
       const controller = new AbortController();
       abortRef.current = controller;
       setStreaming(true);
+      // A fresh turn: forget the previous turn's board so a backstop switch this
+      // turn can't adopt stale picks (see the `subjects` handler).
+      lastPresentBoardRef.current = [];
 
       const parseLine = (line: string) => {
         try {
@@ -365,6 +445,103 @@ export default function ExpertShopPage() {
       sendOp("More like this →", { kind: "more_like", productId });
     },
     [sendOp],
+  );
+
+  /** Switch the active profile from the sidebar — a message-less turn that just
+   *  re-points the session and reloads the chosen person's memory. */
+  const selectSubject = useCallback(
+    (subjectId: string) => {
+      if (subjectId === activeSubjectId) return;
+      void stream({ sessionId: sessionId ?? undefined, lens: lens ?? undefined, setSubject: { id: subjectId } });
+    },
+    [activeSubjectId, lens, sessionId, stream],
+  );
+
+  /** "New profile" — the shopper adds a person by hand; the agent opens it. */
+  const createSubject = useCallback(
+    (name: string, relationship: string | null) => {
+      void stream({
+        sessionId: sessionId ?? undefined,
+        lens: lens ?? undefined,
+        setSubject: { name, relationship },
+      });
+    },
+    [lens, sessionId, stream],
+  );
+
+  /** Delete a person's whole profile. Optimistic; falls back to You if it was
+   *  the active one, and restores the chip if the server rejects. */
+  const removeSubject = useCallback(
+    async (subject: SubjectSummary) => {
+      if (subject.kind === "self") return;
+      setSubjects((prev) => prev.filter((s) => s.subjectId !== subject.subjectId));
+      const wasActive = subject.subjectId === activeSubjectId;
+      try {
+        const res = await fetch(
+          `/api/personalization/subjects/${encodeURIComponent(subject.subjectId)}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) throw new Error("delete failed");
+        if (wasActive) {
+          setActiveSubjectId("self");
+          setBoard([]);
+          setLearnedFacts([]);
+          void stream({ sessionId: sessionId ?? undefined, lens: lens ?? undefined, setSubject: { id: "self" } });
+        }
+      } catch {
+        setSubjects((prev) =>
+          prev.some((s) => s.subjectId === subject.subjectId) ? prev : [...prev, subject],
+        );
+      }
+    },
+    [activeSubjectId, lens, sessionId, stream],
+  );
+
+  /**
+   * Opening a listing is the one moment where a single question is genuinely
+   * cheap — the shopper has just formed an opinion. Asked once per product,
+   * always dismissible, and never blocking.
+   *
+   * Only for signed-in shoppers: there is nowhere to store an anonymous
+   * visitor's answer, and asking a question we intend to discard is worse than
+   * not asking.
+   */
+  const handleOpenProduct = useCallback(
+    (item: VerifiedBoardItem) => {
+      if (authStatus !== "authenticated") return;
+      setOutcomeFor(item);
+    },
+    [authStatus],
+  );
+
+  const handleOutcome = useCallback(
+    async (outcome: Outcome) => {
+      const item = outcomeFor;
+      if (!item || !lens) return;
+      setOutcomeBusy(true);
+      try {
+        const res = await fetch("/api/personalization/outcomes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lens,
+            productId: item.productId,
+            productTitle: item.title,
+            outcome,
+          }),
+        });
+        if (!res.ok) {
+          // Best-effort, but don't pretend it saved.
+          console.warn("outcome not recorded", res.status);
+        }
+      } catch {
+        // Learning from outcomes is best-effort — never interrupt shopping.
+      } finally {
+        setOutcomeBusy(false);
+        setOutcomeFor(null);
+      }
+    },
+    [outcomeFor, lens],
   );
 
   const submitComposer = () => {
@@ -844,6 +1021,17 @@ export default function ExpertShopPage() {
             <FilterBar view={ledger} busy={streaming} onRefine={(message) => sendMessage(message)} />
           </div>
 
+          {authStatus === "authenticated" && (
+            <SubjectSwitcher
+              subjects={subjects}
+              activeSubjectId={activeSubjectId}
+              busy={streaming}
+              onSelect={selectSubject}
+              onCreate={createSubject}
+              onDelete={removeSubject}
+            />
+          )}
+
           <PortraitPanel
             lens={lens}
             view={ledger}
@@ -861,6 +1049,25 @@ export default function ExpertShopPage() {
             }
           />
 
+          {/* One dismissible question about the listing just opened. */}
+          {outcomeFor && (
+            <OutcomePrompt
+              productTitle={outcomeFor.title}
+              onOutcome={handleOutcome}
+              onDismiss={() => setOutcomeFor(null)}
+              busy={outcomeBusy}
+            />
+          )}
+
+          {/* The always-visible profile for the ACTIVE subject in this lens:
+              editable any time, and it fills itself as the agent learns.
+              Nothing when signed out — there'd be nowhere to store the answers. */}
+          <ProfilePanel lens={lens} learned={learnedFacts} subjectId={activeSubjectId} />
+
+          {/* What the agent remembered about this shopper, and why it mattered.
+              Renders nothing for a shopper with no stored profile. */}
+          <PersonalizedBecause signals={signals} />
+
           {board.length === 0 ? (
             streaming ? (
               <ResultsSkeleton />
@@ -875,6 +1082,7 @@ export default function ExpertShopPage() {
               board={board}
               busy={streaming}
               onMoreLike={handleMoreLike}
+              onOpenProduct={handleOpenProduct}
               layout="grid"
               sort={sort}
               showHeading={false}

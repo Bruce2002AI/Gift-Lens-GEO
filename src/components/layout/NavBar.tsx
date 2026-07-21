@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Heart, ShoppingBag, ShoppingCart, Sparkles } from "lucide-react";
+import { Heart, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles } from "lucide-react";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { useWishlist } from "@/components/wishlist/WishlistProvider";
 import { useShortlist } from "@/components/shortlist/ShortlistProvider";
@@ -73,6 +73,20 @@ export function NavBar() {
 
           {status === "authenticated" ? (
             <>
+              {/* Personalization is per-shopper, so it only appears once signed in. */}
+              <Link
+                href="/personalization"
+                aria-label="Personalization Center"
+                title="What the agent remembers about you"
+                aria-current={pathname === "/personalization" ? "page" : undefined}
+                className={`ml-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-sand hover:text-plum ${
+                  pathname === "/personalization"
+                    ? "bg-plum-wash text-plum"
+                    : "text-ink-soft"
+                }`}
+              >
+                <SlidersHorizontal size={18} aria-hidden />
+              </Link>
               <Link
                 href="/wishlist"
                 aria-label={`Wishlist${count > 0 ? ` (${count} saved)` : ""}`}

@@ -26,6 +26,9 @@ function variant(
     imageUrl: null,
     options: options.map(([name, label]) => ({ name, label })),
     seller: null,
+    description: "",
+    rating: { value: null, scaleMin: null, scaleMax: null, count: null },
+    condition: [],
   };
 }
 

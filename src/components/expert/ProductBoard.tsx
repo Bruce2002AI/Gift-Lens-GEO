@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink, Sparkles } from "lucide-react";
 import type { VerifiedBoardCategory, VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
+import {
+  ProductFactsPanel,
+  ProductFactsSummary,
+} from "@/components/catalog/ProductFacts";
 import { formatMinor } from "@/lib/gift/currency";
 import { WishlistButton } from "@/components/wishlist/WishlistButton";
 import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
@@ -60,6 +64,7 @@ const ACTION_CLASS =
 export function ProductBoard({
   board,
   onMoreLike,
+  onOpenProduct,
   busy = false,
   layout = "rail",
   sort = "picks",
@@ -69,6 +74,8 @@ export function ProductBoard({
   board: VerifiedBoardCategory[];
   /** "Show Similar" → a similarity search anchored on this product. */
   onMoreLike: (productId: string) => void;
+  /** Fired when the shopper opens a listing — the moment worth learning from. */
+  onOpenProduct?: (item: VerifiedBoardItem) => void;
   /** True while a turn streams — actions that start a new turn are disabled. */
   busy?: boolean;
   /** "rail" = horizontal snap-scroller (compact side panel); "grid" = wrapping grid (results page). */
@@ -107,6 +114,7 @@ export function ProductBoard({
               key={category.name}
               category={category}
               onMoreLike={onMoreLike}
+              onOpenProduct={onOpenProduct}
               busy={busy}
               layout={layout}
               sort={sort}
@@ -121,12 +129,14 @@ export function ProductBoard({
 function CategorySection({
   category,
   onMoreLike,
+  onOpenProduct,
   busy,
   layout,
   sort,
 }: {
   category: VerifiedBoardCategory;
   onMoreLike: (productId: string) => void;
+  onOpenProduct?: (item: VerifiedBoardItem) => void;
   busy: boolean;
   layout: BoardLayout;
   sort: BoardSort;
@@ -185,7 +195,12 @@ function CategorySection({
               className="animate-rise"
               style={{ animationDelay: `${Math.min(i * 40, 240)}ms` }}
             >
-              <BoardCard item={item} onMoreLike={onMoreLike} busy={busy} />
+              <BoardCard
+                item={item}
+                onMoreLike={onMoreLike}
+                onOpenProduct={onOpenProduct}
+                busy={busy}
+              />
             </div>
           ))}
         </div>
@@ -211,7 +226,12 @@ function CategorySection({
         >
           {items.map((item) => (
             <div key={item.productId} className="w-[200px] shrink-0 snap-start">
-              <BoardCard item={item} onMoreLike={onMoreLike} busy={busy} />
+              <BoardCard
+                item={item}
+                onMoreLike={onMoreLike}
+                onOpenProduct={onOpenProduct}
+                busy={busy}
+              />
             </div>
           ))}
         </div>
@@ -244,10 +264,12 @@ function CategorySection({
 function BoardCard({
   item,
   onMoreLike,
+  onOpenProduct,
   busy,
 }: {
   item: VerifiedBoardItem;
   onMoreLike: (productId: string) => void;
+  onOpenProduct?: (item: VerifiedBoardItem) => void;
   busy: boolean;
 }) {
   return (
@@ -262,6 +284,7 @@ function BoardCard({
             href={item.productUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => onOpenProduct?.(item)}
             aria-label={`View ${item.title} on the merchant site (opens in a new tab)`}
             className="group block"
           >
@@ -312,6 +335,9 @@ function BoardCard({
         <h4 className="line-clamp-2 text-xs font-medium leading-snug text-ink">{item.title}</h4>
         <p className="text-sm font-bold text-ink">{formatMinor(item.priceMinor, item.currency)}</p>
 
+        {/* Rating/stock/condition stay visible on every board tile. */}
+        <ProductFactsSummary facts={item.facts} />
+
         <p className="flex gap-1.5 rounded-lg bg-plum-wash px-2 py-1.5 text-[11px] leading-relaxed text-ink">
           <Sparkles size={11} className="mt-0.5 shrink-0 text-plum" aria-hidden />
           <span className="line-clamp-3">{item.insight}</span>
@@ -322,6 +348,13 @@ function BoardCard({
             <span className="font-semibold text-ink">Trade-off:</span> {item.tradeoff}
           </p>
         )}
+
+        <ProductFactsPanel
+          facts={item.facts}
+          productId={item.productId}
+          source={item.source}
+          className="mt-1"
+        />
 
         <div className="mt-auto flex gap-1.5 pt-1.5">
           <button

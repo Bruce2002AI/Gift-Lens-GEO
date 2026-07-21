@@ -11,7 +11,12 @@ import {
   type Emit,
 } from "./tools";
 import { notarizeBoardItem, resolveEvidenceId, selectOffer } from "./truth";
-import type { AgentSession, VerifiedBoardItem, VerifiedPresentation } from "./types";
+import type {
+  AgentSession,
+  VerifiedBoardCategory,
+  VerifiedBoardItem,
+  VerifiedPresentation,
+} from "./types";
 
 /**
  * Code-built board rails. Two jobs, one admission standard (notarizeBoardItem):
@@ -37,6 +42,17 @@ const SIMILAR_RAIL_SIZE = 8;
 const CATEGORY_TARGET = 6;
 /** Verification budget per thin category (one parallel evidence batch). */
 const TOP_UP_POOL = 12;
+
+/**
+ * The whole board should read as a real shelf to choose from — the shopper's
+ * explicit ask is "at least 10-20 options". These bound the breadth top-up that
+ * fills the board toward a floor after the model + category top-up have run.
+ */
+const BOARD_TARGET = 14;
+/** No single category may swallow the entire breadth fill. */
+const CATEGORY_CAP = 8;
+/** One parallel evidence batch caps the breadth pass's verification cost. */
+const BREADTH_VERIFY_POOL = 20;
 
 function shortTitle(title: string, max = 34): string {
   const t = title.trim();
@@ -308,4 +324,126 @@ export async function topUpBoard(
     }
   }
   return added;
+}
+
+/**
+ * Guarantee the board is a real shelf to choose from — the shopper's own words:
+ * "at least 10-20 options". Where `topUpBoard` only deepens the categories the
+ * model already drew, this fills the board TOWARD a floor by pulling verified
+ * candidates from EVERY search this session ran — most-recently-searched aisle
+ * first, so a fresh interest ("movies", a favourite character) leads rather than
+ * the stale opening aisle. Each item slots into a category it genuinely fits, or
+ * an honest catch-all "More ideas" group rather than mislabel an existing rail.
+ *
+ * Same admission standard as everything else (`notarizeBoardItem`): verified
+ * evidence, constraint pass, opt-in gate, sane price, one currency. Every
+ * insight is code-authored from real offers, never an invented product claim.
+ * Mutates the presentation in place; returns how many items were added.
+ */
+export async function ensureBoardBreadth(
+  session: AgentSession,
+  presentation: VerifiedPresentation,
+  trace: TraceCollector,
+  emit: Emit,
+  aborted?: () => boolean,
+): Promise<number> {
+  // Everything already visible: this presentation's board AND featured cards,
+  // plus every product boarded in earlier turns (the client's board is add-only,
+  // so a cross-turn duplicate renders twice on screen).
+  const shown = new Set<string>([
+    ...presentation.board.flatMap((c) => c.items.map((i) => i.productId)),
+    ...presentation.sections.flatMap((s) => s.cards.map((c) => c.productId)),
+    ...session.boardedIds,
+  ]);
+  let total = presentation.board.reduce((n, c) => n + c.items.length, 0);
+  if (total >= BOARD_TARGET) return 0;
+
+  // Candidate pool: every product surfaced by any search this session, most
+  // recently searched first, in each aisle's own result order, minus anything
+  // already on screen.
+  const pool: string[] = [];
+  const inPool = new Set<string>();
+  for (const ids of [...session.searchHits.values()].reverse()) {
+    for (const id of ids) {
+      const rid = resolveEvidenceId(session, id);
+      if (shown.has(id) || shown.has(rid) || inPool.has(rid)) continue;
+      inPool.add(rid);
+      pool.push(id);
+    }
+  }
+  if (pool.length === 0) return 0;
+
+  // Verify enough to cover the gap with headroom for items that fail screens.
+  const gap = BOARD_TARGET - total;
+  const toVerify = pool
+    .filter((id) => !session.evidence.has(resolveEvidenceId(session, id)))
+    .slice(0, Math.min(BREADTH_VERIFY_POOL, gap * 2 + 6));
+  if (toVerify.length > 0) {
+    await verifyBoardItems(session, toVerify, trace, emit);
+    if (aborted?.()) return 0;
+  }
+
+  const intent = ledgerToBaseIntent(session.ledger);
+  const anchor = presentation.board[0]?.items[0] ?? null;
+  const active = session.knownSubjects.find((x) => x.subjectId === session.activeSubjectId);
+  const catchAllName = `More ideas${active && active.kind === "person" ? ` for ${active.name}` : ""}`;
+  let catchAll: VerifiedBoardCategory | null =
+    presentation.board.find((c) => c.name === catchAllName) ?? null;
+  let added = 0;
+
+  for (const id of pool) {
+    if (total >= BOARD_TARGET) break;
+    const entry = session.evidence.get(resolveEvidenceId(session, id));
+    if (!entry) continue;
+    if (shown.has(entry.product.id)) continue;
+
+    // Prefer a category the item genuinely belongs to (with room); otherwise it
+    // joins the honest catch-all rather than mislabel an existing rail.
+    let target = presentation.board.find(
+      (cat) =>
+        cat !== catchAll &&
+        cat.items.length < CATEGORY_CAP &&
+        fitsCategory(session, entry.product, cat.name, cat.items.map((i) => i.productId)),
+    );
+    if (!target) {
+      catchAll ??= addCatchAll(presentation, catchAllName);
+      target = catchAll;
+    }
+
+    const delta = priceDelta(
+      entry.product,
+      anchor ? { priceMinor: anchor.priceMinor, currency: anchor.currency } : null,
+    );
+    const insight =
+      delta.text != null && delta.sign !== 0
+        ? `Another option from your searches — ${delta.text} than the top pick`
+        : "Another option surfaced by your searches";
+    const item = notarizeBoardItem(
+      session,
+      {
+        productId: id,
+        insight,
+        tradeoff: "More to choose from — auto-added from your searches",
+        isPick: false,
+        trusted: true,
+      },
+      intent,
+    );
+    if (!item) continue;
+    target.items.push(item);
+    shown.add(item.productId);
+    total += 1;
+    added += 1;
+  }
+  return added;
+}
+
+/** Create the catch-all category, append it, and return it. */
+function addCatchAll(
+  presentation: VerifiedPresentation,
+  name: string,
+): VerifiedBoardCategory {
+  const cat: VerifiedBoardCategory = { name, items: [] };
+  presentation.board.push(cat);
+  return cat;
 }

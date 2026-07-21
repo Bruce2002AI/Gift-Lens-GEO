@@ -1,3 +1,4 @@
+import { parseSpecs } from "@/lib/catalog/normalize";
 import type {
   NormalizedProduct,
   NormalizedVariant,
@@ -75,6 +76,9 @@ function buildProduct(seed: ProductSeed): NormalizedProduct & {
     imageUrl: `/demo/${slug}.svg`,
     options: v.options ?? [],
     seller,
+    description: "",
+    rating: { value: null, scaleMin: null, scaleMax: null, count: null },
+    condition: ["new"],
   }));
 
   const optionNames =
@@ -86,10 +90,12 @@ function buildProduct(seed: ProductSeed): NormalizedProduct & {
     title: seed.title,
     description: seed.description,
     url: `https://${seed.merchant.domain}/products/${slug}`,
+    handle: slug,
     categories: seed.categories.map((value) => ({ value })),
     images: Array.from({ length: seed.imageCount ?? 3 }, (_, i) => ({
       url: `/demo/${slug}.svg`,
       altText: seed.missingAltText ? null : `${seed.title} — view ${i + 1}`,
+      type: "image",
     })),
     priceRange: {
       minMinor: seed.priceMinor[0],
@@ -116,12 +122,14 @@ function buildProduct(seed: ProductSeed): NormalizedProduct & {
     })),
     variants,
     rating: seed.rating
-      ? { value: seed.rating.value, scaleMax: 5, count: seed.rating.count }
-      : { value: null, scaleMax: null, count: null },
+      ? { value: seed.rating.value, scaleMin: 1, scaleMax: 5, count: seed.rating.count }
+      : { value: null, scaleMin: null, scaleMax: null, count: null },
+    seller,
     metadata: {
       techSpecs: seed.specs ?? [],
       topFeatures: seed.features ?? [],
       uniqueSellingPoints: seed.usps ?? [],
+      specs: parseSpecs(seed.specs ?? []),
     },
     rawMessages: [],
     keywords: seed.keywords,

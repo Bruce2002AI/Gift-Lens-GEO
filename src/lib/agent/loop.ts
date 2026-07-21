@@ -11,9 +11,11 @@ import {
   mergeCareFlags,
   recordConsent,
 } from "./ledger";
+import { fieldCatalogForPrompt } from "@/lib/personalization/schema";
+import type { ProfileLens } from "@/lib/personalization/types";
 import { CHARTERS, SHARED_CONTRACT } from "./personas";
 import { careFlagDef, EDUCATIONAL_FRAMING, lintOutbound, sniffSupplementConsent } from "./safety";
-import { runInstantSimilar, topUpBoard } from "./board";
+import { ensureBoardBreadth, runInstantSimilar, topUpBoard } from "./board";
 import {
   runGetProducts,
   runSearches,
@@ -22,7 +24,7 @@ import {
   verifyBoardItems,
   type Emit,
 } from "./tools";
-import { verifyPresentation } from "./truth";
+import { resolveEvidenceId, verifyPresentation } from "./truth";
 import { analyzeImageForLens, analyzeUploadedOutfit, describeImageRead, describeOutfitRead } from "./vision";
 import {
   ActionSchema,
@@ -148,6 +150,68 @@ function saySimilarity(a: string, b: string): number {
   return overlap / Math.min(ta.size, tb.size);
 }
 
+/** Ledger fact keys that carry a genuine interest signal (not a style/budget pref). */
+const INTEREST_KEY = /interest|hobb|likes?|loves?|enjoys?|favou?rite|passion|\bfan\b|watch|character|obsess|into\b/i;
+
+/**
+ * The single worst failure in the pasted transcript: the shopper said "she
+ * likes movies, Gwen Tennyson is her favourite character" and the agent kept
+ * recommending the same fountain pens — it never SEARCHED the new interest.
+ *
+ * This surfaces interest-like ledger facts whose terms the agent has not put
+ * through the catalog yet, so the loop can force a fresh search before it
+ * re-presents a stale aisle. A term counts as searched if it (or all its
+ * content words) already appears among the queries this session ran.
+ */
+export function unsearchedInterestTerms(session: AgentSession): string[] {
+  const searched = [...session.searchHits.keys(), ...session.ledger.searchQueries]
+    .join(" ")
+    .toLowerCase();
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  for (const f of session.ledger.facts) {
+    if (!INTEREST_KEY.test(f.key)) continue;
+    for (const piece of String(f.value).split(/[,;/]|\band\b|\bor\b|\bwith\b/i)) {
+      const term = piece
+        .replace(/["'[\]]/g, "") // a coerced-array value can leak in as `["movies"]`
+        .trim()
+        .replace(/^(?:the|her|his|their|a|an)\s+/i, "");
+      const norm = term.toLowerCase();
+      if (term.length < 3 || seen.has(norm)) continue;
+      if (searched.includes(norm)) continue;
+      // Already covered if every content word of the term was searched —
+      // singular/plural-tolerant, so "movies" counts against a "movie" query.
+      const words = norm.split(/\s+/).filter((w) => w.length >= 4);
+      const covered = (w: string) => {
+        const singular = w.replace(/(?:es|s)$/, "");
+        return searched.includes(w) || (singular.length >= 4 && searched.includes(singular));
+      };
+      if (words.length > 0 && words.every(covered)) continue;
+      seen.add(norm);
+      terms.push(term);
+    }
+  }
+  return terms.slice(0, 6);
+}
+
+/**
+ * "think of some other variety of options man" — the shopper is asking for
+ * DIFFERENT options, not a refinement of these. Detecting it lets the loop push
+ * for fresh searches in new directions instead of re-showing the same product
+ * (the transcript returned the identical Noble Heritage pen to this exact ask).
+ */
+export function wantsMoreVariety(session: AgentSession): boolean {
+  if (session.boardedIds.size === 0 && session.candidates.size === 0) return false;
+  const lastUser = [...session.transcript].reverse().find((t) => t.role === "user")?.content ?? "";
+  const t = lastUser.toLowerCase();
+  const explicit =
+    /\bvariety\b|\bmix it up\b|\bchange it up\b|\bsomething (?:else|different|new)\b|\banything else\b|\bnot (?:this|these|those|that)\b|\bshow me more\b/.test(t);
+  const moreWord = /\b(?:more|other|others|another|different|fresh|new|else|alternativ|switch)\b/.test(t);
+  const optionNoun =
+    /\b(?:option|options|idea|ideas|choice|choices|pick|picks|gift|gifts|suggestion|suggestions|thing|things|ones|these|them|something|kind|kinds|type|types)\b/.test(t);
+  return explicit || (moreWord && optionNoun);
+}
+
 function renderState(
   session: AgentSession,
   observations: string[],
@@ -164,17 +228,79 @@ function renderState(
     );
   }
 
+  // Who the picks are for, and which other profiles exist. The active subject's
+  // remembered facts are already in LEDGER FACTS / PROFILE FORM below, so this
+  // just frames them — the code, not the model, does the actual switching.
+  const active = session.knownSubjects.find((s) => s.subjectId === session.activeSubjectId);
+  if (active && active.kind === "person") {
+    lines.push(
+      "",
+      `SHOPPING FOR: ${active.name}${active.relationship ? ` (the shopper's ${active.relationship})` : ""}. Everything you find and every fact you record is about THEM — the profile below is theirs, not the shopper's. Refer to them by name.`,
+    );
+  } else {
+    lines.push("", "SHOPPING FOR: the shopper themselves — the profile below is their own.");
+  }
+  const otherProfiles = session.knownSubjects.filter(
+    (s) => s.subjectId !== session.activeSubjectId,
+  );
+  if (otherProfiles.length > 0) {
+    const names = otherProfiles
+      .map((s) =>
+        s.kind === "self"
+          ? "the shopper themselves"
+          : `${s.name}${s.relationship ? ` (their ${s.relationship})` : ""}`,
+      )
+      .join(", ");
+    lines.push(
+      `OTHER PROFILES on file: ${names}. If the shopper starts talking about one of them (or a new person), just help — the system opens that person's profile automatically; you don't switch it yourself.`,
+    );
+  }
+
   const questionsLeft = MAX_QUESTIONS - session.questionCount;
   lines.push(
     questionsLeft > 0
       ? `QUESTION BUDGET: ${questionsLeft} of ${MAX_QUESTIONS} left for the WHOLE conversation. Spend them only where the answer changes the picks — and prefer attaching them to a presentation as followUp so the shopper sees products while they answer.`
       : `QUESTION BUDGET: EXHAUSTED. Do NOT ask anything else — no ask_user, no followUp. Present your best picks, list your assumptions, and let the shopper steer.`,
   );
-  if (session.candidates.size > 0) {
+  // Anti-fixation: a fresh interest or an explicit "give me variety" must force
+  // a NEW search before the model is allowed to lean on stale candidates. The
+  // interest directive only applies once some searching has happened — before
+  // that, the turn-1 "open with counsel, then search" doctrine already leads to
+  // the right searches and must not be preempted.
+  const unsearched = session.searchHits.size > 0 ? unsearchedInterestTerms(session) : [];
+  const variety = wantsMoreVariety(session);
+  if (unsearched.length > 0) {
     lines.push(
-      `You have ${session.candidates.size} candidate product(s) in hand and ${session.evidence.size} verified. SHOW THEM: end this turn with \`present\` (attach any question as presentation.followUp) rather than a bare question.`,
+      "",
+      `>>> NEW SIGNAL YOU HAVE NOT SEARCHED: ${unsearched.map((t) => `"${t}"`).join(", ")}. The shopper just told you what this person genuinely likes — a FAR stronger, more personal signal than the generic aisle you searched before. Your NEXT action MUST be search_catalog with a fresh query for EACH of these (turn "movies" into "movie lover gift"; turn a character or show name into "<name> merchandise" or the franchise it's from). Do NOT re-present the old aisle — bring back NEW options tied to what they love, then present a wide board.`,
     );
-    if (session.evidence.size < 3) {
+  }
+  if (variety) {
+    lines.push(
+      "",
+      `>>> The shopper asked for MORE / DIFFERENT options — they are not happy with the current set. Do NOT re-show the same products or lean on the same single category. Run 2-3 fresh search_catalog queries in genuinely NEW directions, then present a WIDE board (aim for 12-20 distinct options across a few categories). Variety is the entire ask here.`,
+    );
+  }
+  if (unsearched.length > 0 || variety) {
+    const shownTitles = [...session.boardedIds]
+      .map((id) => session.evidence.get(resolveEvidenceId(session, id))?.product.title)
+      .filter((x): x is string => Boolean(x))
+      .slice(-12);
+    if (shownTitles.length > 0) {
+      lines.push(
+        `ALREADY SHOWN (fine to leave on the board, but do NOT re-feature these as the headline — the shopper wants something new): ${shownTitles.join("; ")}.`,
+      );
+    }
+  }
+
+  if (session.candidates.size > 0) {
+    const mustSearchFirst = unsearched.length > 0 || variety;
+    lines.push(
+      mustSearchFirst
+        ? `You are holding ${session.candidates.size} candidate(s) from earlier — but the latest message needs FRESH results first (see the directive above). Search the new direction, THEN present a board that LEADS with the new finds, not the old aisle.`
+        : `You have ${session.candidates.size} candidate product(s) in hand and ${session.evidence.size} verified. SHOW THEM: end this turn with \`present\` (attach any question as presentation.followUp) rather than a bare question. The board is the shopper's main view — populate it with 10-20 distinct options grouped into categories, never just one or two.`,
+    );
+    if (session.evidence.size < 3 && !mustSearchFirst) {
       lines.push(
         `Only ${session.evidence.size} product(s) are verified — batch-inspect 4-6 promising candidates in ONE get_product call (productIds:[...]) so you can offer a real choice, not a single pick.`,
       );
@@ -194,6 +320,24 @@ function renderState(
   if (ledger.facts.length === 0) lines.push("(none yet — record what you learn)");
   for (const f of ledger.facts) {
     lines.push(`${f.id} [${f.provenance}] ${f.key} = "${f.value}"${f.quote ? ` (their words: "${f.quote}")` : ""}`);
+  }
+
+  /**
+   * The shopper has an always-visible profile form. Writing `update_ledger`
+   * facts to THESE keys makes the answer appear in the right control, so the
+   * form fills itself as you talk instead of the shopper being interrogated.
+   * The list shrinks as fields fill, so a complete profile costs ~nothing.
+   */
+  const filledKeys = new Set(ledger.facts.map((f) => f.key));
+  const catalog = fieldCatalogForPrompt(session.lens as ProfileLens, filledKeys);
+  if (catalog) {
+    lines.push(
+      "",
+      "PROFILE FORM — still blank. When the conversation reveals any of these,",
+      "record it with update_ledger using the EXACT key shown, and never ask for",
+      "something already in LEDGER FACTS above:",
+      catalog,
+    );
   }
 
   const c = ledger.constraints;
@@ -514,7 +658,10 @@ export async function runExpertTurn(
         error: err instanceof Error ? err.message : String(err),
         failures: modelFailures,
       });
-      if (modelFailures >= 2) {
+      // One transient blip is common on a large present payload — retry it
+      // rather than bailing. Only a genuine, repeated failure degrades the turn
+      // (the wall-clock guard above still bounds total time either way).
+      if (modelFailures >= 3) {
         emit({
           type: "notice",
           tone: "degraded",
@@ -843,11 +990,18 @@ export async function runExpertTurn(
         // produced them — the model curates the leaders, code fills the shelf.
         const toppedUp = await topUpBoard(session, presentation, trace, emit, aborted);
         if (aborted?.()) return;
-        if (toppedUp > 0) {
+        // Then guarantee the shelf itself is deep enough to choose from (the
+        // shopper's explicit ask: "at least 10-20 options"), pulling verified
+        // siblings from every search this session ran into fitting categories or
+        // an honest catch-all — so the board never ships with one or two picks.
+        const broadened = await ensureBoardBreadth(session, presentation, trace, emit, aborted);
+        if (aborted?.()) return;
+        const addedOptions = toppedUp + broadened;
+        if (addedOptions > 0) {
           emit({
             type: "trace",
             kind: "note",
-            label: `Added ${toppedUp} more option(s) from the same searches`,
+            label: `Added ${addedOptions} more option(s) from the same searches`,
             detail: "board top-up",
             ok: true,
           });

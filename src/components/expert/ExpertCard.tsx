@@ -3,6 +3,10 @@
 import { Award, ExternalLink, ShieldCheck, Sparkles, Star, type LucideIcon } from "lucide-react";
 import type { VerifiedCard } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
+import {
+  ProductFactsPanel,
+  ProductFactsSummary,
+} from "@/components/catalog/ProductFacts";
 import { formatMinor } from "@/lib/gift/currency";
 
 function formatAsOf(iso: string): string {
@@ -79,6 +83,9 @@ export function ExpertCard({
           {card.merchant && <span className="text-ink-soft">{card.merchant}</span>}
         </div>
 
+        {/* Rating, stock and condition stay visible — never behind a disclosure. */}
+        <ProductFactsSummary facts={card.facts} />
+
         {card.whyForYou.length > 0 && (
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-plum">
@@ -141,6 +148,13 @@ export function ExpertCard({
             against the listing and {card.droppedClaims === 1 ? "was" : "were"} dropped.
           </p>
         )}
+
+        {/* Everything else UCP returned — collapsed so the card stays scannable. */}
+        <ProductFactsPanel
+          facts={card.facts}
+          productId={card.productId}
+          source={card.source}
+        />
 
         <div className="mt-auto space-y-2 pt-1">
           <p className="text-[11px] leading-relaxed text-ink-soft">{card.logistics}</p>
