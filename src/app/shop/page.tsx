@@ -50,13 +50,7 @@ import type { Outcome } from "@/lib/personalization/types";
 import { RichText } from "@/components/expert/RichText";
 import { useHistory } from "@/components/history/HistoryProvider";
 import { HistoryMenu } from "@/components/history/HistoryMenu";
-import {
-  listHistory,
-  loadSnapshot,
-  subscribeHistory,
-  upsertHistory,
-  type HistoryEntry,
-} from "@/lib/history/storage";
+import type { HistoryEntry } from "@/lib/history/types";
 
 // ---------------------------------------------------------------------------
 // Feed model — every stream event (plus user messages) lands here in order
@@ -469,16 +463,23 @@ export default function ExpertShopPage() {
   /** Live mirror of `input` so the typing effect can pause without restarting. */
   const inputValueRef = useRef("");
 
-  // --- Search history (device-local) -------------------------------------
-  const { pendingRestoreId, consumeRestore, newSearchNonce } = useHistory();
+  // --- Search history (DB-backed; localStorage for guests + mirror) ------
+  const {
+    entries: recentHistory,
+    upsert,
+    getSnapshot,
+    pendingRestoreId,
+    consumeRestore,
+    newSearchNonce,
+  } = useHistory();
   /** Stable id for the current conversation — the history/restore key. */
   const convIdRef = useRef<string | null>(null);
   /** Debounce handle so a burst of state updates saves once. */
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Skip reacting to the initial nonce; only fire on an actual "+" click. */
   const newSearchSeenRef = useRef(newSearchNonce);
-  /** Recent searches shown on the empty hero, above the example prompts. */
-  const [recentHistory, setRecentHistory] = useState<HistoryEntry[]>([]);
+  /** First-seen timestamp per conversation, so re-saves keep a stable createdAt. */
+  const createdAtRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -621,12 +622,16 @@ export default function ExpertShopPage() {
   // Reopen a past search requested from the navbar history menu.
   useEffect(() => {
     if (!pendingRestoreId) return;
-    const snap = loadSnapshot<ChatSnapshot>(pendingRestoreId);
-    // Applying an external navigation signal to React state — intentional.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (snap) restoreConversation(pendingRestoreId, snap);
-    consumeRestore();
-  }, [pendingRestoreId, consumeRestore, restoreConversation]);
+    let cancelled = false;
+    (async () => {
+      const snap = await getSnapshot(pendingRestoreId);
+      if (!cancelled && snap) restoreConversation(pendingRestoreId, snap as ChatSnapshot);
+      if (!cancelled) consumeRestore();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingRestoreId, consumeRestore, restoreConversation, getSnapshot]);
 
   // Start a blank search when the navbar "+" is clicked.
   useEffect(() => {
@@ -635,12 +640,8 @@ export default function ExpertShopPage() {
     resetConversation();
   }, [newSearchNonce, resetConversation]);
 
-  // Keep the hero's "Recent searches" list in sync with stored history.
-  useEffect(() => {
-    const load = () => setRecentHistory(listHistory());
-    load();
-    return subscribeHistory(load);
-  }, []);
+  // The hero's "Recent searches" list reads `recentHistory` from the provider,
+  // which owns hydration and keeps it live — no local subscription needed.
 
   // Persist the conversation once a turn settles (debounced). View-only restore:
   // we snapshot the visible chat + board, not the server session state.
@@ -657,7 +658,10 @@ export default function ExpertShopPage() {
       const id = convIdRef.current ?? (convIdRef.current = crypto.randomUUID());
       const productCount = board.reduce((n, c) => n + c.items.length, 0);
       const now = new Date().toISOString();
-      const createdAt = listHistory().find((e) => e.id === id)?.createdAt ?? now;
+      // Keep createdAt stable across a conversation's re-saves. Reading from a
+      // ref (not the entries list) keeps this effect off the entries dependency,
+      // which would otherwise loop: save → entries change → save.
+      const createdAt = (createdAtRef.current[id] ??= now);
       const entry: HistoryEntry = {
         id,
         title: userMsgs[0].slice(0, 100),
@@ -684,7 +688,7 @@ export default function ExpertShopPage() {
         sort,
         sessionId,
       };
-      upsertHistory(entry, snapshot);
+      upsert(entry, snapshot);
     }, 600);
 
     return () => {
@@ -702,6 +706,7 @@ export default function ExpertShopPage() {
     activeSubjectId,
     sort,
     sessionId,
+    upsert,
   ]);
 
   const handleEvent = useCallback(
@@ -1505,9 +1510,9 @@ export default function ExpertShopPage() {
                   <button
                     key={entry.id}
                     type="button"
-                    onClick={() => {
-                      const snap = loadSnapshot<ChatSnapshot>(entry.id);
-                      if (snap) restoreConversation(entry.id, snap);
+                    onClick={async () => {
+                      const snap = await getSnapshot(entry.id);
+                      if (snap) restoreConversation(entry.id, snap as ChatSnapshot);
                     }}
                     className="inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-white px-4 py-2 text-[14px] text-ink shadow-(--shadow-card) transition-all hover:-translate-y-px hover:shadow-(--shadow-hover)"
                   >
