@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { PersonalizationCenter } from "@/components/personalization/PersonalizationCenter";
 
@@ -26,7 +27,13 @@ export function PersonalizationDrawer({
     };
   }, [open, onClose]);
 
-  return (
+  // Portaled to <body> so the drawer's fixed positioning is relative to the
+  // viewport. Rendered inline it would inherit the NavBar header's containing
+  // block (the header uses backdrop-blur, which traps position: fixed), so the
+  // drawer would collapse into the ~64px header instead of covering the screen.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <>
       <div
         aria-hidden
@@ -60,6 +67,7 @@ export function PersonalizationDrawer({
           {open && <PersonalizationCenter embedded />}
         </div>
       </aside>
-    </>
+    </>,
+    document.body,
   );
 }

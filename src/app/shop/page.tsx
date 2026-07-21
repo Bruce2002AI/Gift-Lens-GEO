@@ -44,6 +44,7 @@ import { ProductImage } from "@/components/catalog/ProductImage";
 import { FilterBar } from "@/components/expert/FilterBar";
 import { PresentationView } from "@/components/expert/PresentationView";
 import { ProductBoard, type BoardSort } from "@/components/expert/ProductBoard";
+import { LooksBoard } from "@/components/expert/LooksBoard";
 import { AskCard } from "@/components/expert/AskCard";
 import { OutcomePrompt } from "@/components/personalization/OutcomePrompt";
 import { PersonalizedBecause } from "@/components/personalization/PersonalizedBecause";
@@ -573,6 +574,17 @@ export default function ExpertShopPage() {
     }
     return index;
   }, [board]);
+
+  /** The most recent turn's composed "looks" — shown as set cards on the right. */
+  const latestCompositions = useMemo(() => {
+    for (let i = feed.length - 1; i >= 0; i--) {
+      const item = feed[i];
+      if (item.kind === "present" && item.presentation.compositions.length > 0) {
+        return item.presentation.compositions;
+      }
+    }
+    return [];
+  }, [feed]);
 
   const pushItem = useCallback((item: FeedItemBase) => {
     idRef.current += 1;
@@ -1192,7 +1204,6 @@ export default function ExpertShopPage() {
         return (
           <PresentationView
             presentation={item.presentation}
-            boardIndex={boardIndex}
             onPrefill={prefillComposer}
             onMoreLike={handleMoreLike}
             onSend={(text) => sendMessage(text)}
@@ -1348,20 +1359,20 @@ export default function ExpertShopPage() {
         {/* One soft glow behind the hero — blue with a butter highlight. */}
         <div
           aria-hidden
-          className="pointer-events-none fixed left-1/2 top-[-240px] -z-10 h-[640px] w-[960px] -translate-x-1/2"
+          className="pointer-events-none fixed left-1/2 top-[-340px] -z-10 h-[1000px] w-[1560px] -translate-x-1/2"
           style={{
             background:
-              "radial-gradient(ellipse 58% 55% at 40% 40%, rgba(45,91,255,.08), transparent 65%), radial-gradient(ellipse 48% 50% at 66% 34%, rgba(255,216,77,.14), transparent 65%)",
+              "radial-gradient(ellipse 58% 55% at 40% 40%, rgba(45,91,255,.11), transparent 68%), radial-gradient(ellipse 48% 50% at 66% 34%, rgba(255,216,77,.20), transparent 68%)",
           }}
         />
 
-        <main className="relative z-[1] mx-auto max-w-[760px] px-6 pb-20 pt-11 text-center sm:pt-16">
+        <main className="relative z-[1] mx-auto max-w-[960px] px-6 pb-20 pt-11 text-center sm:pt-16">
           <h1 className="animate-rise font-(family-name:--font-display) text-[clamp(38px,6vw,58px)] font-semibold leading-[1.08] tracking-[-0.02em]">
             What are you
             <br />
             looking for?
           </h1>
-          <p className="mx-auto mt-[18px] max-w-[480px] text-[17px] leading-[1.55] text-ink-soft">
+          <p className="mx-auto mt-[18px] text-[17px] leading-[1.55] text-ink-soft sm:whitespace-nowrap">
             Describe it in your words. We find real products that ship to you.
           </p>
 
@@ -1707,6 +1718,15 @@ export default function ExpertShopPage() {
             signals={signals}
             onManage={() => setProfileDrawerOpen(true)}
           />
+
+          {/* Composed "looks" as buyable sets, above the individual products. */}
+          {latestCompositions.length > 0 && (
+            <LooksBoard
+              compositions={latestCompositions}
+              boardIndex={boardIndex}
+              board={board}
+            />
+          )}
 
           {board.length === 0 ? (
             streaming ? (

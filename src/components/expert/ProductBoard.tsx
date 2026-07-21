@@ -1,16 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Eye, Sparkles } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import type { VerifiedBoardCategory, VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
-import { ProductFactsSummary } from "@/components/catalog/ProductFacts";
 import { formatMinor } from "@/lib/gift/currency";
 import { WishlistButton } from "@/components/wishlist/WishlistButton";
 import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
 import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
 import { QuickViewModal } from "@/components/expert/QuickViewModal";
-import { VariantSelector, pickDefaultVariant } from "@/components/expert/VariantSelector";
+import { pickDefaultVariant } from "@/components/expert/VariantSelector";
 
 /** How the board arranges each category's options. */
 export type BoardLayout = "rail" | "grid";
@@ -45,10 +44,6 @@ function sortItems(items: VerifiedBoardItem[], sort: BoardSort): VerifiedBoardIt
 /** Circular chevron overlaying the slider edge — translucent, subtly raised. */
 const ARROW_CLASS =
   "absolute top-1/2 z-[5] grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-line bg-white/90 text-ink shadow-(--shadow-card) backdrop-blur-sm transition-colors hover:border-plum hover:text-plum";
-
-/** Small outlined action, sized for the compact card footer. */
-const ACTION_CLASS =
-  "inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-line bg-white px-2 py-1.5 text-[11px] font-medium text-ink transition-all hover:border-plum hover:text-plum active:scale-[0.97] disabled:cursor-not-allowed disabled:border-line disabled:text-ink-soft/60 disabled:hover:border-line disabled:hover:text-ink-soft/60";
 
 /**
  * The side-panel product board: every option the agent has surfaced this
@@ -289,118 +284,128 @@ function BoardCard({
     onQuickView(item);
   };
 
-  // Local variant selection — defaults to the first (in-stock) variant. Drives
-  // the card's price, image, and the add-to-cart snapshot.
-  const [variantId, setVariantId] = useState<string | null>(() => pickDefaultVariant(item.facts));
-  const selectedVariant = item.facts.variants.find((v) => v.id === variantId) ?? null;
-  const priceMinor = selectedVariant?.priceMinor ?? item.priceMinor;
-  const currency = selectedVariant?.currency ?? item.currency;
-  const imageUrl = selectedVariant?.imageUrl ?? item.imageUrl;
+  // The card shows the default variant; the full variant picker lives in quick view.
+  const defaultId = pickDefaultVariant(item.facts);
+  const variant = item.facts.variants.find((v) => v.id === defaultId) ?? null;
+  const priceMinor = variant?.priceMinor ?? item.priceMinor;
+  const currency = variant?.currency ?? item.currency;
+  const imageUrl = variant?.imageUrl ?? item.imageUrl;
 
   const base = snapshotFromBoardItem(item);
-  const snapshot = selectedVariant
+  const snapshot = variant
     ? {
         ...base,
-        url: selectedVariant.url ?? base.url,
-        priceMinor: selectedVariant.priceMinor ?? base.priceMinor,
-        priceMaxMinor: selectedVariant.priceMinor ?? base.priceMaxMinor,
-        currency: selectedVariant.currency ?? base.currency,
+        url: variant.url ?? base.url,
+        priceMinor: variant.priceMinor ?? base.priceMinor,
+        priceMaxMinor: variant.priceMinor ?? base.priceMaxMinor,
+        currency: variant.currency ?? base.currency,
       }
     : base;
 
+  // Stock + variant count read inline next to the price, like the prototype.
+  const { totalVariants: total, inStockVariants: inStock, rating } = item.facts;
+  const hasStockSignal = item.facts.variants.some((v) => v.available !== null);
+  const outOfStock = hasStockSignal && inStock === 0;
+  const stockLabel = !hasStockSignal
+    ? null
+    : inStock === 0
+      ? "Out of stock"
+      : total > 1
+        ? `${inStock} of ${total} in stock`
+        : "In stock";
+
   return (
-    <article
-      className={`group relative flex h-full flex-col overflow-hidden rounded-xl border bg-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-(--shadow-lift) ${
-        item.isPick ? "border-plum/45 shadow-(--shadow-card)" : "border-line"
-      }`}
-    >
-      {/* Image opens the quick-view modal — where the full detail now lives. */}
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-[18px] border border-line bg-white transition-all duration-200 hover:-translate-y-0.5 hover:border-transparent hover:shadow-(--shadow-hover)">
+      {/* Image opens the quick-view modal, where the full detail lives. */}
       <button
         type="button"
         onClick={open}
         aria-label={`Quick view ${item.title}`}
-        className="relative block w-full text-left"
+        className="relative block w-full"
       >
         <ProductImage
           src={imageUrl}
           alt={item.title}
           className="aspect-square w-full transition-transform duration-300 group-hover:scale-105"
         />
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/0 opacity-0 transition-all duration-200 group-hover:bg-ink/25 group-hover:opacity-100">
-          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-(--shadow-card)">
-            <Eye size={12} aria-hidden />
-            Quick view
-          </span>
-        </span>
         {item.isPick && (
-          <span
-            title="Among the expert's top picks in this category"
-            className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[10px] font-semibold text-white"
-          >
-            <Sparkles size={10} aria-hidden />
-            AI pick
+          <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-butter px-2.5 py-1 text-[11.5px] font-semibold text-ink">
+            <Check size={11} strokeWidth={2.4} aria-hidden />
+            Best match
           </span>
         )}
         {item.source === "mock" && (
           <span
             title="Demo catalog data — not a live listing"
-            className="absolute bottom-2 left-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+            className="absolute bottom-3 left-3 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
           >
-            Demo data
+            Demo
           </span>
         )}
       </button>
-      <WishlistButton input={snapshot} className="absolute right-2 top-2 z-10 !h-8 !w-8" />
+      <WishlistButton input={snapshot} className="absolute right-2.5 top-2.5 z-10 !h-8 !w-8" />
 
-      <div className="flex flex-1 flex-col gap-1 p-2.5">
+      <div className="flex flex-1 flex-col px-[15px] pb-[15px] pt-3">
         {item.merchant && (
-          <p className="truncate text-[10px] font-medium uppercase tracking-wide text-ink-soft">
+          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">
             {item.merchant}
           </p>
         )}
         <button
           type="button"
           onClick={open}
-          className="line-clamp-2 text-left text-xs font-medium leading-snug text-ink hover:text-plum"
+          className="mt-[3px] line-clamp-2 text-left text-sm font-medium leading-[1.4] text-ink transition-colors hover:text-plum"
         >
           {item.title}
+          {total > 1 && <span className="text-ink-faint"> · {total} variants</span>}
         </button>
-        <p className="text-sm font-bold text-ink">{formatMinor(priceMinor, currency)}</p>
 
-        {/* One necessary at-a-glance signal (rating/stock); the rest is in quick view. */}
-        <ProductFactsSummary facts={item.facts} />
+        <div className="mt-[7px] flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+          <span className="text-[15.5px] font-semibold text-ink">
+            {formatMinor(priceMinor, currency)}
+          </span>
+          {rating.value != null && (
+            <span className="text-[12.5px] font-medium text-ink-soft">
+              {rating.value}
+              {rating.count != null && (
+                <span className="ml-0.5 font-normal text-ink-faint">({rating.count})</span>
+              )}
+            </span>
+          )}
+        </div>
 
-        {/* Variant picker + actions are pinned to the card bottom as one block,
-            so the dropdown aligns across cards regardless of the title/badge
-            height above it. (The picker renders nothing for single-variant
-            products — the buttons still sit at the bottom.) */}
-        <div className="mt-auto space-y-2 pt-2">
-          <VariantSelector
-            facts={item.facts}
-            selectedId={variantId}
-            onSelect={setVariantId}
-            mode="dropdown"
-            compact
+        {stockLabel && (
+          <span
+            className={`mt-1.5 inline-flex items-center gap-1 text-[11.5px] ${
+              outOfStock ? "text-warn" : "text-ok"
+            }`}
+          >
+            {!outOfStock && <Check size={11} strokeWidth={2.4} aria-hidden />}
+            {stockLabel}
+          </span>
+        )}
+
+        {item.insight && (
+          <p className="mt-[7px] line-clamp-2 text-[12.5px] leading-[1.5] text-ink-soft">
+            {item.insight}
+          </p>
+        )}
+
+        <div className="mt-auto flex items-center gap-2 pt-3">
+          <ShortlistButton
+            item={snapshot}
+            labeled
+            className="flex-1 rounded-full bg-plum py-2 text-[13px] font-semibold text-white transition-colors hover:bg-plum-dark active:scale-[0.98] [&_svg]:hidden"
           />
-
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={() => onMoreLike(item.productId)}
-              disabled={busy}
-              aria-label={`Show products similar to ${item.title}`}
-              title="Find very similar options anchored on this one"
-              className={ACTION_CLASS}
-            >
-              <Sparkles size={12} aria-hidden />
-              Show Similar
-            </button>
-            <ShortlistButton
-              item={snapshot}
-              labeled
-              className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-plum px-2 py-1.5 text-[11px] font-medium text-white transition-all hover:bg-plum-dark active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft/60 [&_svg]:text-white"
-            />
-          </div>
+          <button
+            type="button"
+            onClick={() => onMoreLike(item.productId)}
+            disabled={busy}
+            aria-label={`Show products similar to ${item.title}`}
+            className="rounded-full border border-line bg-white px-3.5 py-2 text-[12.5px] font-medium text-ink-soft transition-colors hover:border-ink-faint hover:text-ink disabled:opacity-50"
+          >
+            Similar
+          </button>
         </div>
       </div>
     </article>
