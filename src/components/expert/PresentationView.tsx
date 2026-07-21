@@ -1,13 +1,7 @@
 "use client";
 
-import { Layers, ListChecks } from "lucide-react";
-import type {
-  VerifiedBoardItem,
-  VerifiedComposition,
-  VerifiedPresentation,
-  VerifiedSection,
-} from "@/lib/agent/types";
-import { ProductImage } from "@/components/catalog/ProductImage";
+import { ListChecks } from "lucide-react";
+import type { VerifiedPresentation, VerifiedSection } from "@/lib/agent/types";
 import { formatMinor } from "@/lib/gift/currency";
 import { AskCard } from "./AskCard";
 import { ExpertCard } from "./ExpertCard";
@@ -21,18 +15,12 @@ import { RichText } from "./RichText";
  */
 export function PresentationView({
   presentation,
-  boardIndex,
   onPrefill,
   onMoreLike,
   onSend,
   compact = false,
 }: {
   presentation: VerifiedPresentation;
-  /**
-   * productId → board item, accumulated across turns by the page. Compositions
-   * reference board products by id; anything missing is skipped silently.
-   */
-  boardIndex: Map<string, VerifiedBoardItem>;
   /** Prefills the composer (used by the assumptions strip). */
   onPrefill: (text: string) => void;
   /** "More like this" under a card → similarity search on that product. */
@@ -79,9 +67,8 @@ export function PresentationView({
         </div>
       )}
 
-      {presentation.compositions.length > 0 && (
-        <CompositionStrip compositions={presentation.compositions} boardIndex={boardIndex} />
-      )}
+      {/* Composed "looks" now render as buyable set cards in the results
+          column (see LooksBoard), so they are intentionally omitted here. */}
 
       {isPlan ? (
         <div className="space-y-4">
@@ -189,86 +176,6 @@ export function PresentationView({
         />
       )}
     </div>
-  );
-}
-
-/**
- * The composed looks/stages: complete outfits, routines or plans assembled
- * from board products. Members are resolved out of the accumulated board —
- * an id the board doesn't (yet) carry is dropped rather than rendered blank.
- */
-function CompositionStrip({
-  compositions,
-  boardIndex,
-}: {
-  compositions: VerifiedComposition[];
-  boardIndex: Map<string, VerifiedBoardItem>;
-}) {
-  const resolved = compositions
-    .map((composition) => ({
-      composition,
-      members: composition.productIds
-        .map((id) => boardIndex.get(id))
-        .filter((item): item is VerifiedBoardItem => item != null),
-    }))
-    .filter((entry) => entry.members.length > 0);
-
-  if (resolved.length === 0) return null;
-
-  return (
-    <section aria-label="Ways to put it together" className="space-y-3">
-      <h3 className="inline-flex items-center gap-1.5 font-(family-name:--font-display) text-lg font-semibold">
-        <Layers size={16} className="text-plum" aria-hidden />
-        Ways to put it together
-        <span className="text-xs font-normal text-ink-soft">
-          {resolved.length} option{resolved.length === 1 ? "" : "s"}
-        </span>
-      </h3>
-
-      {resolved.map(({ composition, members }, i) => {
-        const currency = members[0]?.currency ?? null;
-        const priced = members.every(
-          (member) => member.priceMinor != null && member.currency === currency,
-        );
-        const totalMinor = priced
-          ? members.reduce((sum, member) => sum + (member.priceMinor ?? 0), 0)
-          : null;
-
-        return (
-          <article key={i} className="rounded-xl border border-plum/25 bg-plum-wash/60 p-3.5">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <h4 className="font-(family-name:--font-display) font-semibold text-ink">
-                {composition.name}
-              </h4>
-              {totalMinor != null && (
-                <span className="text-sm font-semibold text-plum">
-                  {formatMinor(totalMinor, currency)}
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-sm leading-relaxed text-ink-soft">{composition.rationale}</p>
-
-            <ul className="mt-3 flex gap-3 overflow-x-auto pb-1">
-              {members.map((member) => (
-                <li key={member.productId} className="w-24 shrink-0">
-                  <ProductImage
-                    src={member.imageUrl}
-                    alt={member.title}
-                    className="aspect-square w-full rounded-lg"
-                  />
-                  <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-ink">
-                    {member.title}
-                  </p>
-                  <p className="text-[11px] font-semibold text-ink">
-                    {formatMinor(member.priceMinor, member.currency)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </article>
-        );
-      })}
-    </section>
   );
 }
 

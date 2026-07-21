@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Sparkles, X } from "lucide-react";
+import { Check, ExternalLink, X } from "lucide-react";
 import type { VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { ProductFactsPanel, ProductFactsSummary } from "@/components/catalog/ProductFacts";
@@ -97,7 +97,7 @@ export function QuickViewModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-ink/50 p-0 sm:items-center sm:p-4"
+      className="animate-fade fixed inset-0 z-[70] flex items-end justify-center bg-ink/50 p-0 sm:items-center sm:p-4"
       role="presentation"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
@@ -105,7 +105,7 @@ export function QuickViewModal({
         role="dialog"
         aria-modal="true"
         aria-label={item.title}
-        className="animate-rise flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-(--shadow-lift) sm:rounded-2xl"
+        className="animate-pop flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-(--shadow-lift) sm:rounded-2xl"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
           <span className="text-xs font-medium uppercase tracking-wide text-ink-soft">
@@ -132,9 +132,9 @@ export function QuickViewModal({
                   className="aspect-square w-full"
                 />
                 {item.isPick && (
-                  <span className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[11px] font-semibold text-white">
-                    <Sparkles size={11} aria-hidden />
-                    AI pick
+                  <span className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-butter px-2.5 py-1 text-[11.5px] font-semibold text-ink">
+                    <Check size={11} strokeWidth={2.4} aria-hidden />
+                    Best match
                   </span>
                 )}
                 <WishlistButton input={snapshot} className="absolute right-3 top-3 !h-9 !w-9" />
