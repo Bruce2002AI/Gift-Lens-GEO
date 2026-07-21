@@ -362,7 +362,13 @@ export function personalizationSignals(
   facts: ProfileFact[],
   limit = 4,
 ): PersonalizationSignal[] {
-  const ranked = [...facts].sort((a, b) => {
+  // Structural constraints (budget/currency/country) belong in the formatted
+  // Constraints strip, not here — otherwise the strip shows "Budget max minor:
+  // 500000" instead of a real preference signal.
+  const meaningful = facts.filter(
+    (f) => !CONSTRAINT_SLUGS.has(joinLedgerKey(f.category, f.key)),
+  );
+  const ranked = [...meaningful].sort((a, b) => {
     const rank = (f: ProfileFact) => (f.source === "explicit" ? 0 : 1);
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
     if (b.confidence !== a.confidence) return b.confidence - a.confidence;

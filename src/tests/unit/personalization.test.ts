@@ -558,4 +558,14 @@ describe("personalized-because signals", () => {
     expect(personalizationSignals(many)).toHaveLength(4);
     expect(personalizationSignals(many, 2)).toHaveLength(2);
   });
+
+  it("omits structural constraints (budget/currency/country) — they show in Constraints", () => {
+    const signals = personalizationSignals([
+      fact({ id: "a", category: "budget", key: "max_minor", value: 500000 }),
+      fact({ id: "b", category: "budget", key: "currency", value: "INR" }),
+      fact({ id: "c", category: "profile", key: "country", value: "IN" }),
+      fact({ id: "d", category: "skin", key: "type", value: "oily" }),
+    ]);
+    expect(signals.map((s) => s.factId)).toEqual(["d"]);
+  });
 });

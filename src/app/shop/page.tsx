@@ -1695,8 +1695,13 @@ export default function ExpertShopPage() {
           />
 
           {/* What the agent remembered about this shopper, and why it mattered.
-              Renders nothing for a shopper with no stored profile. */}
-          <PersonalizedBecause signals={signals} />
+              Renders nothing for a shopper with no stored profile. "Manage"
+              opens the profile drawer in place rather than leaving for the
+              personalization page. */}
+          <PersonalizedBecause
+            signals={signals}
+            onManage={() => setProfileDrawerOpen(true)}
+          />
 
           {board.length === 0 ? (
             streaming ? (
