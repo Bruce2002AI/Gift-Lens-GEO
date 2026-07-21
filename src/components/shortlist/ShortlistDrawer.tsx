@@ -198,7 +198,7 @@ export function ShortlistDrawer() {
                       type="button"
                       onClick={() => checkoutStore(group)}
                       disabled={!group.cartUrl}
-                      aria-label={`Add ${group.shop} items to cart`}
+                      aria-label={`Go to ${group.shop} cart`}
                       className="btn-primary shrink-0 !px-4 !py-2 text-sm active:scale-[0.98]"
                     >
                       Go to cart
