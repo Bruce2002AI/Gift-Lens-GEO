@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -7,6 +8,7 @@ import { Heart, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles } from "l
 import { UserMenu } from "@/components/auth/UserMenu";
 import { useWishlist } from "@/components/wishlist/WishlistProvider";
 import { useShortlist } from "@/components/shortlist/ShortlistProvider";
+import { PersonalizationDrawer } from "@/components/personalization/PersonalizationDrawer";
 
 const LINKS = [
   { href: "/shop", label: "Shop" },
@@ -19,6 +21,7 @@ export function NavBar() {
   const { data: session, status } = useSession();
   const { count } = useWishlist();
   const { count: shortlistCount, openDrawer } = useShortlist();
+  const [personalOpen, setPersonalOpen] = useState(false);
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-cream/90 backdrop-blur">
       <nav
@@ -73,20 +76,20 @@ export function NavBar() {
 
           {status === "authenticated" ? (
             <>
-              {/* Personalization is per-shopper, so it only appears once signed in. */}
-              <Link
-                href="/personalization"
+              {/* Personalization is per-shopper, so it only appears once signed in.
+                  Opens in a drawer instead of navigating away. */}
+              <button
+                type="button"
+                onClick={() => setPersonalOpen(true)}
                 aria-label="Personalization Center"
+                aria-haspopup="dialog"
                 title="What the agent remembers about you"
-                aria-current={pathname === "/personalization" ? "page" : undefined}
                 className={`ml-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-sand hover:text-plum ${
-                  pathname === "/personalization"
-                    ? "bg-plum-wash text-plum"
-                    : "text-ink-soft"
+                  personalOpen ? "bg-plum-wash text-plum" : "text-ink-soft"
                 }`}
               >
                 <SlidersHorizontal size={18} aria-hidden />
-              </Link>
+              </button>
               <Link
                 href="/wishlist"
                 aria-label={`Wishlist${count > 0 ? ` (${count} saved)` : ""}`}
@@ -112,6 +115,7 @@ export function NavBar() {
           )}
         </div>
       </nav>
+      <PersonalizationDrawer open={personalOpen} onClose={() => setPersonalOpen(false)} />
     </header>
   );
 }

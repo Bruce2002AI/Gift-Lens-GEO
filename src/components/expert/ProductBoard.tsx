@@ -10,6 +10,7 @@ import { WishlistButton } from "@/components/wishlist/WishlistButton";
 import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
 import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
 import { QuickViewModal } from "@/components/expert/QuickViewModal";
+import { VariantSelector, pickDefaultVariant } from "@/components/expert/VariantSelector";
 
 /** How the board arranges each category's options. */
 export type BoardLayout = "rail" | "grid";
@@ -288,6 +289,25 @@ function BoardCard({
     onQuickView(item);
   };
 
+  // Local variant selection — defaults to the first (in-stock) variant. Drives
+  // the card's price, image, and the add-to-cart snapshot.
+  const [variantId, setVariantId] = useState<string | null>(() => pickDefaultVariant(item.facts));
+  const selectedVariant = item.facts.variants.find((v) => v.id === variantId) ?? null;
+  const priceMinor = selectedVariant?.priceMinor ?? item.priceMinor;
+  const currency = selectedVariant?.currency ?? item.currency;
+  const imageUrl = selectedVariant?.imageUrl ?? item.imageUrl;
+
+  const base = snapshotFromBoardItem(item);
+  const snapshot = selectedVariant
+    ? {
+        ...base,
+        url: selectedVariant.url ?? base.url,
+        priceMinor: selectedVariant.priceMinor ?? base.priceMinor,
+        priceMaxMinor: selectedVariant.priceMinor ?? base.priceMaxMinor,
+        currency: selectedVariant.currency ?? base.currency,
+      }
+    : base;
+
   return (
     <article
       className={`group relative flex h-full flex-col overflow-hidden rounded-xl border bg-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-(--shadow-lift) ${
@@ -302,7 +322,7 @@ function BoardCard({
         className="relative block w-full text-left"
       >
         <ProductImage
-          src={item.imageUrl}
+          src={imageUrl}
           alt={item.title}
           className="aspect-square w-full transition-transform duration-300 group-hover:scale-105"
         />
@@ -330,10 +350,7 @@ function BoardCard({
           </span>
         )}
       </button>
-      <WishlistButton
-        input={snapshotFromBoardItem(item)}
-        className="absolute right-2 top-2 z-10 !h-8 !w-8"
-      />
+      <WishlistButton input={snapshot} className="absolute right-2 top-2 z-10 !h-8 !w-8" />
 
       <div className="flex flex-1 flex-col gap-1 p-2.5">
         {item.merchant && (
@@ -348,28 +365,42 @@ function BoardCard({
         >
           {item.title}
         </button>
-        <p className="text-sm font-bold text-ink">{formatMinor(item.priceMinor, item.currency)}</p>
+        <p className="text-sm font-bold text-ink">{formatMinor(priceMinor, currency)}</p>
 
         {/* One necessary at-a-glance signal (rating/stock); the rest is in quick view. */}
         <ProductFactsSummary facts={item.facts} />
 
-        <div className="mt-auto flex gap-1.5 pt-2">
-          <button
-            type="button"
-            onClick={() => onMoreLike(item.productId)}
-            disabled={busy}
-            aria-label={`Show products similar to ${item.title}`}
-            title="Find very similar options anchored on this one"
-            className={ACTION_CLASS}
-          >
-            <Sparkles size={12} aria-hidden />
-            Show Similar
-          </button>
-          <ShortlistButton
-            item={snapshotFromBoardItem(item)}
-            labeled
-            className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-plum px-2 py-1.5 text-[11px] font-medium text-white transition-all hover:bg-plum-dark active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft/60 [&_svg]:text-white"
+        {/* Variant picker + actions are pinned to the card bottom as one block,
+            so the dropdown aligns across cards regardless of the title/badge
+            height above it. (The picker renders nothing for single-variant
+            products — the buttons still sit at the bottom.) */}
+        <div className="mt-auto space-y-2 pt-2">
+          <VariantSelector
+            facts={item.facts}
+            selectedId={variantId}
+            onSelect={setVariantId}
+            mode="dropdown"
+            compact
           />
+
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => onMoreLike(item.productId)}
+              disabled={busy}
+              aria-label={`Show products similar to ${item.title}`}
+              title="Find very similar options anchored on this one"
+              className={ACTION_CLASS}
+            >
+              <Sparkles size={12} aria-hidden />
+              Show Similar
+            </button>
+            <ShortlistButton
+              item={snapshot}
+              labeled
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-plum px-2 py-1.5 text-[11px] font-medium text-white transition-all hover:bg-plum-dark active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-soft/60 [&_svg]:text-white"
+            />
+          </div>
         </div>
       </div>
     </article>

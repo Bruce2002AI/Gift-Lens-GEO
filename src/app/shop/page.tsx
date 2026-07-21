@@ -1,7 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import Link from "next/link";
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -35,16 +42,17 @@ import { MODE_META } from "@/lib/modes/meta";
 import { modeIcon } from "@/components/agent/mode-icons";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { FilterBar } from "@/components/expert/FilterBar";
-import { PortraitPanel } from "@/components/expert/PortraitPanel";
 import { PresentationView } from "@/components/expert/PresentationView";
 import { ProductBoard, type BoardSort } from "@/components/expert/ProductBoard";
+import { AskCard } from "@/components/expert/AskCard";
 import { OutcomePrompt } from "@/components/personalization/OutcomePrompt";
 import { PersonalizedBecause } from "@/components/personalization/PersonalizedBecause";
-import {
-  ProfilePanel,
-  type ProfileFactWire,
-} from "@/components/personalization/ProfilePanel";
-import { SubjectSwitcher } from "@/components/personalization/SubjectSwitcher";
+import { type ProfileFactWire } from "@/components/personalization/ProfilePanel";
+import { RecipientToken, type HeroRecipient } from "@/components/personalization/RecipientToken";
+import { NewProfileModal } from "@/components/personalization/NewProfileModal";
+import { ProfileDrawer } from "@/components/personalization/ProfileDrawer";
+import { DeliverToChips } from "@/components/personalization/DeliverToChips";
+import { countryName } from "@/lib/gift/countries";
 import type { PersonalizationSignal } from "@/lib/personalization/ledger-bridge";
 import type { Outcome } from "@/lib/personalization/types";
 import { RichText } from "@/components/expert/RichText";
@@ -440,7 +448,6 @@ export default function ExpertShopPage() {
   /** The listing the shopper just opened — we ask one outcome question about it. */
   const [outcomeFor, setOutcomeFor] = useState<VerifiedBoardItem | null>(null);
   const [outcomeBusy, setOutcomeBusy] = useState(false);
-  const [portraitCollapsed, setPortraitCollapsed] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [input, setInput] = useState("");
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string; name: string } | null>(null);
@@ -451,11 +458,19 @@ export default function ExpertShopPage() {
   const [activeHeroLens, setActiveHeroLens] = useState<HeroLensId>("gift");
   /** Whether the "More lenses" row is expanded. */
   const [lensExpanded, setLensExpanded] = useState(false);
+  /** Home-screen recipient chosen in the search bar (gift lens) — sent on search. */
+  const [heroRecipient, setHeroRecipient] = useState<HeroRecipient | null>(null);
+  /** Home-screen ship-to country (code) + PIN, folded into the first search. */
+  const [heroCountry, setHeroCountry] = useState<string | null>(null);
+  const [heroPostal, setHeroPostal] = useState("");
+  /** The "Someone new" profile modal. */
+  const [newProfileOpen, setNewProfileOpen] = useState(false);
+  /** The "Gift details" profile drawer (opened from the "+ Add details" chip). */
+  const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   /** The one ambient animation on the page: the search placeholder types itself. */
   const [typedPlaceholder, setTypedPlaceholder] = useState("");
 
   const idRef = useRef(0);
-  const autoCollapsedRef = useRef(false);
   /** The active subject the last `subjects` event reported — detects switches. */
   const activeSubjectRef = useRef("self");
   /** Just THIS turn's board, so a mid-turn backstop switch keeps the new
@@ -549,13 +564,6 @@ export default function ExpertShopPage() {
     return () => clearTimeout(timer);
   }, [activeHeroLens, feed.length]);
 
-  /** Once products exist the board owns the panel — fold the Portrait away once. */
-  useEffect(() => {
-    if (autoCollapsedRef.current || board.length === 0) return;
-    autoCollapsedRef.current = true;
-    setPortraitCollapsed(true);
-  }, [board]);
-
   /** Compositions reference board products by id — resolve them from here. */
   const boardIndex = useMemo(() => {
     const index = new Map<string, VerifiedBoardItem>();
@@ -577,7 +585,6 @@ export default function ExpertShopPage() {
     convIdRef.current = crypto.randomUUID();
     idRef.current = 0;
     activeSubjectRef.current = "self";
-    autoCollapsedRef.current = false;
     lastPresentBoardRef.current = [];
     setFeed([]);
     setBoard([]);
@@ -592,7 +599,6 @@ export default function ExpertShopPage() {
     setInput("");
     setPendingImage(null);
     setOutcomeFor(null);
-    setPortraitCollapsed(false);
   }, []);
 
   /** Rehydrate the page from a saved snapshot (view + re-engage). */
@@ -601,8 +607,6 @@ export default function ExpertShopPage() {
     convIdRef.current = id;
     idRef.current = snap.feed.reduce((max, f) => Math.max(max, f.id), 0);
     activeSubjectRef.current = snap.activeSubjectId;
-    // Board already exists, so suppress the one-shot Portrait auto-collapse.
-    autoCollapsedRef.current = true;
     lastPresentBoardRef.current = [];
     setFeed(snap.feed);
     setBoard(snap.board);
@@ -614,7 +618,6 @@ export default function ExpertShopPage() {
     setActiveSubjectId(snap.activeSubjectId);
     setSort(snap.sort);
     setSessionId(snap.sessionId);
-    setPortraitCollapsed(snap.board.length > 0);
     setOutcomeFor(null);
   }, []);
 
@@ -722,8 +725,6 @@ export default function ExpertShopPage() {
             // and the form would show the last person's data under the new name.
             setLearnedFacts([]);
             setSignals([]);
-            autoCollapsedRef.current = false;
-            setPortraitCollapsed(false);
             setSort("picks");
             // Board attribution: a PRE-turn switch invalidates the whole
             // accumulated board; a mid-turn BACKSTOP keeps only this turn's picks
@@ -869,7 +870,14 @@ export default function ExpertShopPage() {
   );
 
   const sendMessage = useCallback(
-    (text: string, opts?: { lens?: ExpertLensId; imageDataUrl?: string }) => {
+    (
+      text: string,
+      opts?: {
+        lens?: ExpertLensId;
+        imageDataUrl?: string;
+        setSubject?: ExpertRequest["setSubject"];
+      },
+    ) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       pushItem({ kind: "user", text: trimmed, imageUrl: opts?.imageDataUrl });
@@ -878,6 +886,7 @@ export default function ExpertShopPage() {
         lens: opts?.lens ?? lens ?? undefined,
         message: trimmed,
         imageDataUrl: opts?.imageDataUrl,
+        setSubject: opts?.setSubject ?? undefined,
       });
     },
     [lens, pushItem, sessionId, stream],
@@ -922,33 +931,22 @@ export default function ExpertShopPage() {
     [lens, sessionId, stream],
   );
 
-  /** Delete a person's whole profile. Optimistic; falls back to You if it was
-   *  the active one, and restores the chip if the server rejects. */
-  const removeSubject = useCallback(
-    async (subject: SubjectSummary) => {
-      if (subject.kind === "self") return;
-      setSubjects((prev) => prev.filter((s) => s.subjectId !== subject.subjectId));
-      const wasActive = subject.subjectId === activeSubjectId;
-      try {
-        const res = await fetch(
-          `/api/personalization/subjects/${encodeURIComponent(subject.subjectId)}`,
-          { method: "DELETE" },
-        );
-        if (!res.ok) throw new Error("delete failed");
-        if (wasActive) {
-          setActiveSubjectId("self");
-          setBoard([]);
-          setLearnedFacts([]);
-          void stream({ sessionId: sessionId ?? undefined, lens: lens ?? undefined, setSubject: { id: "self" } });
-        }
-      } catch {
-        setSubjects((prev) =>
-          prev.some((s) => s.subjectId === subject.subjectId) ? prev : [...prev, subject],
-        );
-      }
-    },
-    [activeSubjectId, lens, sessionId, stream],
-  );
+  /** Load the shopper's saved people once, so the home recipient picker can
+   *  offer them before any conversation has started. */
+  useEffect(() => {
+    if (authStatus !== "authenticated") return;
+    let cancelled = false;
+    void fetch("/api/personalization/subjects")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { subjects?: SubjectSummary[] } | null) => {
+        if (cancelled || !data?.subjects || data.subjects.length === 0) return;
+        setSubjects(data.subjects);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus]);
 
   /**
    * Opening a listing is the one moment where a single question is genuinely
@@ -1018,6 +1016,7 @@ export default function ExpertShopPage() {
   /** Pick a lens on the launch screen — expert lenses also arm the live flow. */
   const selectHeroLens = useCallback((id: HeroLensId) => {
     setActiveHeroLens(id);
+    if (id !== "gift") setHeroRecipient(null);
     if (isExpertLens(id)) setLens(id);
   }, []);
 
@@ -1030,19 +1029,45 @@ export default function ExpertShopPage() {
     if (!text) return;
     if (isExpertLens(activeHeroLens)) {
       const image = pendingImage;
+      // The gift recipient chosen in the search bar rides along on this first
+      // turn: an id switches to a saved person, a name creates a new one.
+      const setSubject =
+        activeHeroLens === "gift" && heroRecipient
+          ? heroRecipient.id
+            ? { id: heroRecipient.id }
+            : { name: heroRecipient.name, relationship: heroRecipient.relationship ?? null }
+          : undefined;
+      // Fold the chosen ship-to location + PIN into the message so the agent
+      // reads them into the ledger's shipping constraints on this first turn.
+      const where = heroCountry
+        ? ` (ship to ${countryName(heroCountry)}${heroPostal ? `, PIN ${heroPostal}` : ""})`
+        : "";
       setInput("");
       setPendingImage(null);
-      sendMessage(text, { lens: activeHeroLens, imageDataUrl: image?.dataUrl });
+      setHeroRecipient(null);
+      sendMessage(`${text}${where}`, {
+        lens: activeHeroLens,
+        imageDataUrl: image?.dataUrl,
+        setSubject,
+      });
     } else {
       const params = new URLSearchParams({ mode: activeHeroLens, q: text });
       router.push(`/shop/classic?${params.toString()}`);
     }
-  }, [activeHeroLens, input, pendingImage, router, sendMessage]);
+  }, [activeHeroLens, heroCountry, heroPostal, heroRecipient, input, pendingImage, router, sendMessage]);
 
   /** Tap a prompt card — fill the search box (the shopper still hits go). */
   const pickWish = useCallback((text: string) => {
     setInput(text);
-    heroInputRef.current?.focus();
+    // Focus and drop the caret at the end AFTER the value commits, so the text
+    // isn't left highlighted (a stray selection) in the field.
+    requestAnimationFrame(() => {
+      const el = heroInputRef.current;
+      if (!el) return;
+      el.focus();
+      const end = el.value.length;
+      el.setSelectionRange(end, end);
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
@@ -1083,13 +1108,12 @@ export default function ExpertShopPage() {
 
   const accentClass =
     lens && MODE_META[lens].accent === "gold" ? "border-l-gold/70" : "border-l-plum/70";
-  const agentBubble = `max-w-[90%] whitespace-pre-wrap rounded-2xl border-l-2 bg-sand px-4 py-2.5 text-sm leading-relaxed text-ink ${accentClass}`;
 
   const renderItem = (item: Exclude<FeedItem, { kind: "trace" }>) => {
     switch (item.kind) {
       case "user":
         return (
-          <div className="ml-auto max-w-[85%] rounded-2xl bg-plum px-4 py-2.5 text-sm leading-relaxed text-white">
+          <div className="ml-auto max-w-[86%] rounded-[18px] rounded-br-[4px] bg-plum-wash px-[15px] py-[11px] text-sm leading-[1.5] text-ink">
             <p className="whitespace-pre-wrap">{item.text}</p>
             {item.imageUrl && (
               <ProductImage
@@ -1101,38 +1125,20 @@ export default function ExpertShopPage() {
           </div>
         );
       case "say":
-        // RichText manages its own block layout, so this bubble drops the
-        // pre-wrap the plain-text bubbles use.
+        // The agent speaks as plain prose (no bubble) — emphasis via **bold**.
         return (
-          <div className={agentBubble.replace(" whitespace-pre-wrap", "")}>
+          <div className="max-w-[95%] text-sm leading-[1.6] text-ink-soft [&_strong]:font-semibold [&_strong]:text-ink">
             <RichText text={item.text} />
           </div>
         );
       case "ask":
         return (
-          <div className={agentBubble.replace("max-w-[90%]", "max-w-[95%]")}>
-            <p>{item.text}</p>
-            {item.fork && (
-              <p className="mt-1.5 text-xs italic text-ink-soft">
-                asking because: {item.fork.ifA} → {item.fork.thenA} · {item.fork.ifB} →{" "}
-                {item.fork.thenB}
-              </p>
-            )}
-            {item.quickReplies.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {item.quickReplies.map((reply, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="chip !bg-white !py-1 text-xs"
-                    onClick={() => sendMessage(reply)}
-                  >
-                    {reply}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <AskCard
+            text={item.text}
+            fork={item.fork}
+            quickReplies={item.quickReplies}
+            onReply={(reply) => sendMessage(reply)}
+          />
         );
       case "care":
         return (
@@ -1181,7 +1187,6 @@ export default function ExpertShopPage() {
         return (
           <PresentationView
             presentation={item.presentation}
-            accentClass={accentClass}
             boardIndex={boardIndex}
             onPrefill={prefillComposer}
             onMoreLike={handleMoreLike}
@@ -1231,44 +1236,6 @@ export default function ExpertShopPage() {
   const hasStarted = feed.length > 0;
   const totalItems = board.reduce((n, category) => n + category.items.length, 0);
 
-  const renderLensPicker = (compact: boolean) => (
-    <div
-      className={`flex flex-wrap items-center gap-1.5 ${compact ? "" : "justify-center"}`}
-      aria-label="Choose a lens"
-    >
-      {EXPERT_LENS_IDS.map((id) => {
-        const meta = MODE_META[id];
-        const Icon = modeIcon(meta.icon);
-        const active = lens === id;
-        return (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setLens(id)}
-            title={meta.tagline}
-            aria-pressed={active}
-            className={`inline-flex items-center gap-1.5 rounded-full border transition ${
-              compact ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
-            } ${
-              active
-                ? "border-transparent bg-butter font-medium text-ink shadow-[0_4px_12px_-4px_rgba(255,195,20,.5)]"
-                : "border-line bg-white text-ink hover:border-plum/40"
-            }`}
-          >
-            <Icon size={compact ? 12 : 14} aria-hidden />
-            {meta.name}
-          </button>
-        );
-      })}
-      <Link
-        href="/shop/classic"
-        className={`ml-1 font-medium text-plum hover:underline ${compact ? "text-xs" : "text-sm"}`}
-      >
-        More lenses →
-      </Link>
-    </div>
-  );
-
   const composer = (
     <form
       className="space-y-2"
@@ -1317,6 +1284,9 @@ export default function ExpertShopPage() {
             }
           }}
           placeholder={lens ? MODE_META[lens].examplePrompt : "e.g. A retirement gift for my dad…"}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="block max-h-[140px] min-h-[24px] w-full resize-none bg-transparent text-sm leading-relaxed text-ink placeholder:text-ink-soft/50 focus:outline-none"
         />
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
@@ -1359,6 +1329,17 @@ export default function ExpertShopPage() {
 
     return (
       <div className="relative">
+        <NewProfileModal
+          open={newProfileOpen}
+          onClose={() => setNewProfileOpen(false)}
+          onCreate={(name, relationship, interests) => {
+            setHeroRecipient({ id: null, name, relationship });
+            if (interests) {
+              setInput((prev) => (prev.trim() ? prev : `A gift for ${name} who loves ${interests}`));
+            }
+            requestAnimationFrame(() => heroInputRef.current?.focus());
+          }}
+        />
         {/* One soft glow behind the hero — blue with a butter highlight. */}
         <div
           aria-hidden
@@ -1379,9 +1360,11 @@ export default function ExpertShopPage() {
             Describe it in your words. We find real products that ship to you.
           </p>
 
+          {/* Console — lens chips, caption, and search grouped in one card. */}
+          <div className="mt-11 rounded-[32px] border border-line bg-white px-[30px] pb-[22px] pt-7 shadow-[0_2px_6px_rgba(28,34,48,.03),0_24px_60px_-24px_rgba(45,91,255,.18)]">
           {/* Lens chips — exactly one active, and it's the only butter object. */}
           <div
-            className="mt-9 flex flex-wrap items-center justify-center gap-2.5"
+            className="flex flex-wrap items-center justify-center gap-2.5"
             role="tablist"
             aria-label="Lenses"
           >
@@ -1432,15 +1415,23 @@ export default function ExpertShopPage() {
             {heroLens.captionRest}
           </p>
 
-          {/* Search — the hero component: largest radius, blue-cast shadow. */}
-          <div className="mt-[22px]">
+          {/* Search — flat inside the console, with a focus ring. */}
+          <div className="mt-5">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 submitHero();
               }}
-              className="flex items-center gap-1.5 rounded-[28px] border-[1.5px] border-line bg-white py-2.5 pl-6 pr-2.5 text-left shadow-(--shadow-hero) transition-[border-color] focus-within:border-plum"
+              className="flex items-center gap-1.5 rounded-[24px] border-[1.5px] border-line bg-white py-2.5 pl-3 pr-2.5 text-left transition-all focus-within:border-plum focus-within:shadow-[0_0_0_4px_var(--color-plum-wash)]"
             >
+              {activeHeroLens === "gift" && (
+                <RecipientToken
+                  subjects={subjects}
+                  value={heroRecipient}
+                  onSelect={setHeroRecipient}
+                  onNew={() => setNewProfileOpen(true)}
+                />
+              )}
               <input
                 id="hero-search"
                 ref={heroInputRef}
@@ -1449,6 +1440,9 @@ export default function ExpertShopPage() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={typedPlaceholder}
                 aria-label="Describe what you are looking for"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 className="min-w-0 flex-1 border-none bg-transparent py-3 text-[17px] text-ink outline-none placeholder:text-ink-faint"
               />
               <input
@@ -1475,6 +1469,16 @@ export default function ExpertShopPage() {
               </button>
             </form>
 
+            {/* Deliver-to: where it ships + PIN, folded into the first search. */}
+            <div className="mt-3.5">
+              <DeliverToChips
+                country={heroCountry}
+                postal={heroPostal}
+                onCountry={setHeroCountry}
+                onPostal={setHeroPostal}
+              />
+            </div>
+
             {pendingImage ? (
               <div className="mx-auto mt-3 flex max-w-sm items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-[13px] text-ink-soft">
                 <ImagePlus size={14} aria-hidden className="shrink-0 text-plum" />
@@ -1489,10 +1493,11 @@ export default function ExpertShopPage() {
                 </button>
               </div>
             ) : (
-              <p className="mt-3 text-[13.5px] text-ink-faint">
+              <p className="mt-2.5 text-[13.5px] text-ink-faint">
                 Seen something you love? Add a photo, we will find it for you.
               </p>
             )}
+          </div>
           </div>
 
           {recentHistory.length > 0 && (
@@ -1554,18 +1559,11 @@ export default function ExpertShopPage() {
         <section aria-label="Conversation" className="min-w-0">
           <div className="card flex max-h-[65vh] flex-col p-4 xl:sticky xl:top-[4.5rem] xl:h-[calc(100vh-6rem)] xl:max-h-none">
             <div className="mb-3 flex items-center justify-between gap-2 border-b border-line pb-3">
-              <h1 className="font-(family-name:--font-display) text-lg font-semibold">ShopLens</h1>
-              <div className="flex items-center gap-2">
-                {lens && (
-                  <span className="text-xs font-medium text-ink-soft">{MODE_META[lens].name}</span>
-                )}
-                <HistoryMenu />
-              </div>
+              {lens ? <LensBadge lens={lens} /> : <span />}
+              <HistoryMenu />
             </div>
 
-            <div className="mb-3">{renderLensPicker(true)}</div>
-
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 scroll-fade" aria-live="polite">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 scroll-fade" aria-live="polite">
               {blocks.map((block) =>
                 block.kind === "traces" ? (
                   <div key={block.key} className="animate-rise flex flex-wrap items-center gap-1.5 pl-1">
@@ -1609,8 +1607,8 @@ export default function ExpertShopPage() {
 
         {/* Results page */}
         <section aria-label="Products" className="min-w-0 space-y-4">
-          {/* Toolbar — count, sort, and the derived filter chips read as one bar. */}
-          <div className="space-y-3 border-b border-line pb-4">
+          {/* Toolbar — count + sort. */}
+          <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-(family-name:--font-display) text-xl font-semibold">
                 {totalItems > 0 ? (
@@ -1647,35 +1645,29 @@ export default function ExpertShopPage() {
               )}
             </div>
 
-            <FilterBar view={ledger} busy={streaming} onRefine={(message) => sendMessage(message)} />
           </div>
 
-          {authStatus === "authenticated" && (
-            <SubjectSwitcher
-              subjects={subjects}
-              activeSubjectId={activeSubjectId}
-              busy={streaming}
-              onSelect={selectSubject}
-              onCreate={createSubject}
-              onDelete={removeSubject}
-            />
-          )}
-
-          <PortraitPanel
-            lens={lens}
+          {/* The single "Shopping with" card — recipient, constraints, interests,
+              and "+ Add details", merged from the old filter/subject/portrait rows. */}
+          <FilterBar
             view={ledger}
             busy={streaming}
-            collapsed={portraitCollapsed}
-            onToggleCollapsed={() => setPortraitCollapsed((open) => !open)}
-            onCorrectFact={(factId, newValue) =>
-              sendOp(`Correction: ${newValue}`, { kind: "correct_fact", factId, newValue })
-            }
+            onRefine={(message) => sendMessage(message)}
+            subjects={subjects}
+            activeSubjectId={activeSubjectId}
+            onSelectSubject={selectSubject}
+            onNewProfile={() => setNewProfileOpen(true)}
             onRemoveFact={(factId, value) =>
               sendOp(`Remove: ${value}`, { kind: "correct_fact", factId, remove: true })
             }
-            onRevokeConsent={(category) =>
-              sendOp(`Revoke my ${category} opt-in.`, { kind: "revoke_consent", category })
-            }
+            onAddDetails={lens ? () => setProfileDrawerOpen(true) : undefined}
+          />
+
+          {/* Someone-new profile modal (also reachable from the recipient chip). */}
+          <NewProfileModal
+            open={newProfileOpen}
+            onClose={() => setNewProfileOpen(false)}
+            onCreate={(name, relationship) => createSubject(name, relationship)}
           />
 
           {/* One dismissible question about the listing just opened. */}
@@ -1688,10 +1680,19 @@ export default function ExpertShopPage() {
             />
           )}
 
-          {/* The always-visible profile for the ACTIVE subject in this lens:
-              editable any time, and it fills itself as the agent learns.
-              Nothing when signed out — there'd be nowhere to store the answers. */}
-          <ProfilePanel lens={lens} learned={learnedFacts} subjectId={activeSubjectId} />
+          {/* The profile now lives in a right-side drawer, opened by the
+              "+ Add details" chip in the Shopping-with bar. */}
+          <ProfileDrawer
+            open={profileDrawerOpen}
+            onClose={() => setProfileDrawerOpen(false)}
+            lens={lens}
+            learned={learnedFacts}
+            subjectId={activeSubjectId}
+            onSaveRefresh={() => {
+              setProfileDrawerOpen(false);
+              sendMessage("Refresh the picks using my saved profile details.");
+            }}
+          />
 
           {/* What the agent remembered about this shopper, and why it mattered.
               Renders nothing for a shopper with no stored profile. */}
@@ -1728,6 +1729,17 @@ export default function ExpertShopPage() {
  * lens-aware, styled to match the agent's own message bubbles so the wait
  * reads as active work rather than a stalled spinner.
  */
+/** The active lens as a butter pill badge in the chat-rail header. */
+function LensBadge({ lens }: { lens: ExpertLensId }) {
+  const meta = MODE_META[lens];
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full bg-butter px-3.5 py-1.5 text-[13.5px] font-semibold text-ink">
+      {createElement(modeIcon(meta.icon), { size: 15, strokeWidth: 1.9, "aria-hidden": true })}
+      {meta.name}
+    </span>
+  );
+}
+
 function WorkingIndicator({
   lensName,
   accentClass,

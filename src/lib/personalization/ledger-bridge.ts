@@ -133,6 +133,22 @@ function toProvenance(source: ProfileFact["source"]): LedgerFact["provenance"] {
 }
 
 /**
+ * Structural constraints (budget, currency, country, postal code) are restored
+ * separately by `constraintsFromFacts` and shown — formatted — in the portrait's
+ * Constraints strip. They must NOT also surface as raw display facts, or the
+ * budget shows up twice: once as a properly formatted "up to ₹5,000.00" and once
+ * as the bare minor-unit amount ("500000").
+ */
+const CONSTRAINT_SLUGS = new Set([
+  "budget.max_minor",
+  "budget.min_minor",
+  "budget.currency",
+  "profile.currency",
+  "profile.country",
+  "profile.postal_code",
+]);
+
+/**
  * Translate stored facts into ledger facts for the prompt.
  *
  * `turn: 0` marks them as pre-existing knowledge — the loop's "learned this
@@ -147,6 +163,7 @@ export function factsToLedgerFacts(facts: ProfileFact[]): LedgerFact[] {
   const bySlug = new Map<string, ProfileFact>();
   for (const f of facts) {
     const slug = joinLedgerKey(f.category, f.key);
+    if (CONSTRAINT_SLUGS.has(slug)) continue; // surfaced via Constraints, not as a fact
     const prior = bySlug.get(slug);
     if (!prior || (prior.lens === "shared" && f.lens !== "shared")) {
       bySlug.set(slug, f);

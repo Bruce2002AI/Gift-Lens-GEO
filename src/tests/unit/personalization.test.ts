@@ -209,6 +209,19 @@ describe("profile → ledger hydration", () => {
     expect(out[1].provenance).toBe("inferred");
   });
 
+  it("does not surface budget/currency/country as raw display facts", () => {
+    // These are restored via constraintsFromFacts and shown, formatted, in the
+    // Constraints strip — emitting them as facts too would show the bare minor
+    // amount ("500000") next to the formatted "up to ₹5,000.00".
+    const out = factsToLedgerFacts([
+      fact({ lens: "shared", category: "budget", key: "max_minor", value: 500000 }),
+      fact({ id: "f2", lens: "shared", category: "budget", key: "currency", value: "INR" }),
+      fact({ id: "f3", lens: "shared", category: "profile", key: "country", value: "IN" }),
+      fact({ id: "f4", category: "recipient", key: "loves", value: "coffee" }),
+    ]);
+    expect(out.map((f) => f.key)).toEqual(["recipient.loves"]);
+  });
+
   it("does not let memory overwrite something said this session", () => {
     const ledger = emptyLedger();
     ledger.facts.push({
