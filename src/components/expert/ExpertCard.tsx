@@ -178,7 +178,7 @@ export function ExpertCard({
                 className="btn-primary flex-1 !px-3 !py-2 text-sm"
               >
                 <ExternalLink size={14} aria-hidden />
-                View on merchant
+                View on store
               </a>
             )}
           </div>

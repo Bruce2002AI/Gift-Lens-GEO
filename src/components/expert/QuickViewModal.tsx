@@ -211,7 +211,7 @@ export function QuickViewModal({
                     className="btn-secondary w-full !py-2.5 text-sm"
                   >
                     <ExternalLink size={14} aria-hidden />
-                    View on merchant
+                    View on store
                   </a>
                 )}
               </div>
