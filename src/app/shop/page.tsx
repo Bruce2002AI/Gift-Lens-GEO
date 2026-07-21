@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
   ChevronDown,
+  Clock,
   HeartHandshake,
   ImagePlus,
   Info,
@@ -49,6 +50,7 @@ import { HistoryMenu } from "@/components/history/HistoryMenu";
 import {
   listHistory,
   loadSnapshot,
+  subscribeHistory,
   upsertHistory,
   type HistoryEntry,
 } from "@/lib/history/storage";
@@ -249,6 +251,8 @@ export default function ExpertShopPage() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Skip reacting to the initial nonce; only fire on an actual "+" click. */
   const newSearchSeenRef = useRef(newSearchNonce);
+  /** Recent searches shown on the empty hero, above the example prompts. */
+  const [recentHistory, setRecentHistory] = useState<HistoryEntry[]>([]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -351,6 +355,13 @@ export default function ExpertShopPage() {
     newSearchSeenRef.current = newSearchNonce;
     resetConversation();
   }, [newSearchNonce, resetConversation]);
+
+  // Keep the hero's "Recent searches" list in sync with stored history.
+  useEffect(() => {
+    const load = () => setRecentHistory(listHistory());
+    load();
+    return subscribeHistory(load);
+  }, []);
 
   // Persist the conversation once a turn settles (debounced). View-only restore:
   // we snapshot the visible chat + board, not the server session state.
@@ -1050,6 +1061,30 @@ export default function ExpertShopPage() {
         <div className="animate-rise">{composer}</div>
 
         <div className="mt-5">{renderLensPicker(false)}</div>
+
+        {recentHistory.length > 0 && (
+          <div className="mt-8">
+            <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
+              Recent searches
+            </p>
+            <div className="flex flex-col gap-2">
+              {recentHistory.slice(0, 4).map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  className="chip w-full justify-start text-left"
+                  onClick={() => {
+                    const snap = loadSnapshot<ChatSnapshot>(entry.id);
+                    if (snap) restoreConversation(entry.id, snap);
+                  }}
+                >
+                  <Clock size={14} aria-hidden className="shrink-0" />
+                  <span className="truncate">{entry.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-8">
           <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
