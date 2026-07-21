@@ -48,6 +48,8 @@ interface LivingProfileFormProps {
   busyKey?: string | null;
   /** Denser layout for the shop sidebar; also collapses untouched groups. */
   compact?: boolean;
+  /** Embedded in a drawer: drop the outer card + title (the drawer supplies them). */
+  bare?: boolean;
   onConfirmAll?: () => void;
   loading?: boolean;
   error?: string | null;
@@ -129,6 +131,7 @@ export function LivingProfileForm({
   onConsentChange,
   busyKey = null,
   compact = false,
+  bare = false,
   onConfirmAll,
   loading = false,
   error = null,
@@ -284,20 +287,27 @@ export function LivingProfileForm({
   const canConfirmAll = unconfirmed.length > 0;
 
   return (
-    <section className="card p-4 sm:p-5" aria-label={`${LENS_LABELS[lens]} profile`}>
+    <section
+      className={bare ? "" : "card p-4 sm:p-5"}
+      aria-label={`${LENS_LABELS[lens]} profile`}
+    >
       {/* -- header ---------------------------------------------------------- */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-(family-name:--font-display) text-base text-ink">
-            {LENS_LABELS[lens]} profile
-          </h3>
-          <p className="mt-0.5 text-sm text-ink-soft">
-            <span className="font-medium text-ink">
-              {completion.filled} of {completion.total}
-            </span>{" "}
-            filled in — everything here is editable, and it fills itself as you chat.
-          </p>
-        </div>
+      <div
+        className={`flex flex-wrap items-end gap-3 ${bare ? "justify-end" : "justify-between"}`}
+      >
+        {!bare && (
+          <div className="min-w-0">
+            <h3 className="font-(family-name:--font-display) text-base text-ink">
+              {LENS_LABELS[lens]} profile
+            </h3>
+            <p className="mt-0.5 text-sm text-ink-soft">
+              <span className="font-medium text-ink">
+                {completion.filled} of {completion.total}
+              </span>{" "}
+              filled in — everything here is editable, and it fills itself as you chat.
+            </p>
+          </div>
+        )}
         <button
           type="button"
           className="btn-secondary !px-3.5 !py-2 text-sm"

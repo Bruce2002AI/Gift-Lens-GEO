@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, ListChecks, MessageCircleQuestion } from "lucide-react";
+import { Layers, ListChecks } from "lucide-react";
 import type {
   VerifiedBoardItem,
   VerifiedComposition,
@@ -9,6 +9,7 @@ import type {
 } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { formatMinor } from "@/lib/gift/currency";
+import { AskCard } from "./AskCard";
 import { ExpertCard } from "./ExpertCard";
 import { RichText } from "./RichText";
 
@@ -20,7 +21,6 @@ import { RichText } from "./RichText";
  */
 export function PresentationView({
   presentation,
-  accentClass,
   boardIndex,
   onPrefill,
   onMoreLike,
@@ -28,8 +28,6 @@ export function PresentationView({
   compact = false,
 }: {
   presentation: VerifiedPresentation;
-  /** border-left accent class matching the active lens. */
-  accentClass: string;
   /**
    * productId → board item, accumulated across turns by the page. Compositions
    * reference board products by id; anything missing is skipped silently.
@@ -56,9 +54,7 @@ export function PresentationView({
 
   return (
     <div className="space-y-4">
-      <div
-        className={`max-w-[95%] rounded-2xl border-l-2 bg-sand px-4 py-3 text-sm leading-relaxed text-ink ${accentClass}`}
-      >
+      <div className="max-w-[95%] text-sm leading-[1.6] text-ink-soft [&_strong]:font-semibold [&_strong]:text-ink">
         <RichText text={presentation.message} />
       </div>
 
@@ -185,34 +181,12 @@ export function PresentationView({
         ))}
 
       {presentation.followUp && (
-        <div
-          className={`max-w-[95%] rounded-2xl border-l-2 bg-sand px-4 py-3 text-sm leading-relaxed text-ink ${accentClass}`}
-        >
-          <p className="flex items-start gap-2">
-            <MessageCircleQuestion size={15} className="mt-0.5 shrink-0 text-plum" aria-hidden />
-            <span className="whitespace-pre-wrap">{presentation.followUp.text}</span>
-          </p>
-          {presentation.followUp.fork && (
-            <p className="mt-1.5 pl-6 text-xs italic text-ink-soft">
-              asking because: {presentation.followUp.fork.ifA} → {presentation.followUp.fork.thenA} ·{" "}
-              {presentation.followUp.fork.ifB} → {presentation.followUp.fork.thenB}
-            </p>
-          )}
-          {presentation.followUp.quickReplies.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5 pl-6">
-              {presentation.followUp.quickReplies.map((reply, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className="chip !bg-white !py-1 text-xs"
-                  onClick={() => onSend(reply)}
-                >
-                  {reply}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <AskCard
+          text={presentation.followUp.text}
+          fork={presentation.followUp.fork}
+          quickReplies={presentation.followUp.quickReplies}
+          onReply={onSend}
+        />
       )}
     </div>
   );

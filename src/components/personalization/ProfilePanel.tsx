@@ -41,6 +41,8 @@ interface ProfilePanelProps {
   learned: ProfileFactWire[];
   /** Whose profile this shows — `self` (default) or a person's subject id. */
   subjectId?: string;
+  /** Embedded in the details drawer: drop the card + title chrome. */
+  bare?: boolean;
 }
 
 const IDENTITY = (category: string, key: string) => `${category}.${key}`;
@@ -89,7 +91,7 @@ function mergeFacts(fetched: ProfileFact[], learned: ProfileFactWire[]): Profile
   return [...byId.values()];
 }
 
-export function ProfilePanel({ lens, learned, subjectId = "self" }: ProfilePanelProps) {
+export function ProfilePanel({ lens, learned, subjectId = "self", bare = false }: ProfilePanelProps) {
   const { status } = useSession();
   const { toast } = useToast();
 
@@ -295,6 +297,7 @@ export function ProfilePanel({ lens, learned, subjectId = "self" }: ProfilePanel
   return (
     <LivingProfileForm
       compact
+      bare={bare}
       lens={lens}
       facts={facts}
       loading={loadedSubject !== subjectId && !error}

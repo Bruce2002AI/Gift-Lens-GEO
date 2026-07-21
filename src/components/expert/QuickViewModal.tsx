@@ -5,22 +5,11 @@ import { ExternalLink, Sparkles, X } from "lucide-react";
 import type { VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { ProductFactsPanel, ProductFactsSummary } from "@/components/catalog/ProductFacts";
-import { VariantSelector } from "@/components/expert/VariantSelector";
+import { VariantSelector, pickDefaultVariant } from "@/components/expert/VariantSelector";
 import { WishlistButton } from "@/components/wishlist/WishlistButton";
 import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
 import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
 import { formatMinor } from "@/lib/gift/currency";
-
-/** The variant a product opens on: its designated selection, else first in stock, else first. */
-function defaultVariantId(item: VerifiedBoardItem): string | null {
-  const variants = item.facts.variants;
-  return (
-    variants.find((v) => v.isSelected)?.id ??
-    variants.find((v) => v.available !== false)?.id ??
-    variants[0]?.id ??
-    null
-  );
-}
 
 /**
  * Full product detail in a modal — the reasoning (insight, trade-off) and the
@@ -38,7 +27,7 @@ export function QuickViewModal({
   onOpenProduct?: (item: VerifiedBoardItem) => void;
 }) {
   const [active, setActive] = useState(0);
-  const [variantId, setVariantId] = useState<string | null>(item ? defaultVariantId(item) : null);
+  const [variantId, setVariantId] = useState<string | null>(item ? pickDefaultVariant(item.facts) : null);
   const [activeFor, setActiveFor] = useState(item?.productId);
 
   // Reset carousel + variant when a different product opens — the render-time
@@ -46,7 +35,7 @@ export function QuickViewModal({
   if (item && item.productId !== activeFor) {
     setActiveFor(item.productId);
     setActive(0);
-    setVariantId(defaultVariantId(item));
+    setVariantId(pickDefaultVariant(item.facts));
   }
 
   useEffect(() => {
@@ -193,16 +182,17 @@ export function QuickViewModal({
                 facts={item.facts}
                 selectedId={variantId}
                 onSelect={selectVariant}
+                mode="dropdown"
               />
 
-              <div className="flex gap-2 rounded-xl bg-plum-wash px-3 py-2.5 text-sm leading-relaxed text-ink">
-                <Sparkles size={14} className="mt-0.5 shrink-0 text-plum" aria-hidden />
-                <span>{item.insight}</span>
+              <div className="rounded-xl bg-butter-soft px-4 py-3 text-sm leading-relaxed text-ink">
+                <span className="font-semibold">Why it fits: </span>
+                {item.insight}
               </div>
 
               {item.tradeoff && (
                 <p className="text-sm leading-relaxed text-ink-soft">
-                  <span className="font-semibold text-ink">Trade-off:</span> {item.tradeoff}
+                  <span className="font-semibold text-ink">Worth knowing:</span> {item.tradeoff}
                 </p>
               )}
 

@@ -133,6 +133,22 @@ function toProvenance(source: ProfileFact["source"]): LedgerFact["provenance"] {
 }
 
 /**
+ * Structural constraints (budget, currency, country, postal code) are restored
+ * separately by `constraintsFromFacts` and shown — formatted — in the portrait's
+ * Constraints strip. They must NOT also surface as raw display facts, or the
+ * budget shows up twice: once as a properly formatted "up to ₹5,000.00" and once
+ * as the bare minor-unit amount ("500000").
+ */
+const CONSTRAINT_SLUGS = new Set([
+  "budget.max_minor",
+  "budget.min_minor",
+  "budget.currency",
+  "profile.currency",
+  "profile.country",
+  "profile.postal_code",
+]);
+
+/**
  * Translate stored facts into ledger facts for the prompt.
  *
  * `turn: 0` marks them as pre-existing knowledge — the loop's "learned this
@@ -147,6 +163,7 @@ export function factsToLedgerFacts(facts: ProfileFact[]): LedgerFact[] {
   const bySlug = new Map<string, ProfileFact>();
   for (const f of facts) {
     const slug = joinLedgerKey(f.category, f.key);
+    if (CONSTRAINT_SLUGS.has(slug)) continue; // surfaced via Constraints, not as a fact
     const prior = bySlug.get(slug);
     if (!prior || (prior.lens === "shared" && f.lens !== "shared")) {
       bySlug.set(slug, f);
@@ -345,7 +362,13 @@ export function personalizationSignals(
   facts: ProfileFact[],
   limit = 4,
 ): PersonalizationSignal[] {
-  const ranked = [...facts].sort((a, b) => {
+  // Structural constraints (budget/currency/country) belong in the formatted
+  // Constraints strip, not here — otherwise the strip shows "Budget max minor:
+  // 500000" instead of a real preference signal.
+  const meaningful = facts.filter(
+    (f) => !CONSTRAINT_SLUGS.has(joinLedgerKey(f.category, f.key)),
+  );
+  const ranked = [...meaningful].sort((a, b) => {
     const rank = (f: ProfileFact) => (f.source === "explicit" ? 0 : 1);
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
     if (b.confidence !== a.confidence) return b.confidence - a.confidence;

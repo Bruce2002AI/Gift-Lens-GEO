@@ -67,6 +67,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* On-brand text selection — a light blue tint with dark ink, so highlighting
+   reads as intentional rather than the browser's clashing default (e.g. when
+   autocomplete inserts selected text). */
+::selection {
+  background-color: var(--color-plum-wash);
+  color: var(--color-ink);
+}
+
 /* Thin, subtle scrollbars: quiet enough to stay clean, present enough that
    scrollable regions (e.g. the prompt-visibility table) announce themselves. */
 * {
