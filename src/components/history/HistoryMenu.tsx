@@ -1,15 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Clock, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useHistory } from "@/components/history/HistoryProvider";
-import {
-  deleteHistory,
-  listHistory,
-  renameHistory,
-  subscribeHistory,
-  type HistoryEntry,
-} from "@/lib/history/storage";
+import type { HistoryEntry } from "@/lib/history/types";
 
 /** Compact "12h" / "3d" / "just now" relative label. */
 function relativeTime(iso: string): string {
@@ -33,22 +27,16 @@ function relativeTime(iso: string): string {
  * it on the shop page; hovering reveals rename/delete.
  */
 export function HistoryMenu() {
-  const { requestRestore, requestNewSearch } = useHistory();
+  const { entries, refresh, rename, remove, requestRestore, requestNewSearch } =
+    useHistory();
   const [open, setOpen] = useState(false);
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const refresh = useCallback(() => setEntries(listHistory()), []);
-
-  // Keep the list live while mounted: re-read whenever storage changes (this
-  // tab's writes and other tabs). Reading on open happens in the toggle handler.
-  useEffect(() => subscribeHistory(refresh), [refresh]);
-
   const toggleOpen = () => {
-    if (!open) refresh();
+    if (!open) refresh(); // re-sync from the backing store when opening
     setOpen((v) => !v);
   };
 
@@ -84,10 +72,9 @@ export function HistoryMenu() {
   };
 
   const commitRename = () => {
-    if (editingId && draftTitle.trim()) renameHistory(editingId, draftTitle.trim());
+    if (editingId && draftTitle.trim()) rename(editingId, draftTitle.trim());
     setEditingId(null);
     setDraftTitle("");
-    refresh();
   };
 
   return (
@@ -192,10 +179,7 @@ export function HistoryMenu() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          deleteHistory(entry.id);
-                          refresh();
-                        }}
+                        onClick={() => remove(entry.id)}
                         aria-label={`Delete ${entry.title}`}
                         className="rounded-md p-1 text-ink-soft hover:bg-white hover:text-danger"
                       >

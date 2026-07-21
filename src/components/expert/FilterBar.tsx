@@ -246,17 +246,21 @@ export function FilterBar({
         onSelect={(country) => onRefine(`Ship to ${country}.`)}
       />
 
-      <EditableChip
-        icon={<Hash size={12} />}
-        label="pin code"
-        value={c?.postalCode ?? null}
-        placeholder={postal?.example ? `e.g. ${postal.example}` : "Add PIN code"}
-        busy={busy}
-        numeric={postal?.numeric ?? false}
-        maxLength={postal?.maxLength}
-        validate={(raw) => validatePostalCode(c?.country ?? null, raw)}
-        onCommit={(raw) => onRefine(`My postal/PIN code is ${raw}.`)}
-      />
+      {/* PIN code only makes sense once we know the country — its format,
+          validation, and placeholder all depend on it. */}
+      {c?.country && (
+        <EditableChip
+          icon={<Hash size={12} />}
+          label="pin code"
+          value={c.postalCode ?? null}
+          placeholder={postal?.example ? `e.g. ${postal.example}` : "Add PIN code"}
+          busy={busy}
+          numeric={postal?.numeric ?? false}
+          maxLength={postal?.maxLength}
+          validate={(raw) => validatePostalCode(c.country, raw)}
+          onCommit={(raw) => onRefine(`My postal/PIN code is ${raw}.`)}
+        />
+      )}
 
       {c?.deadline && (
         <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink">

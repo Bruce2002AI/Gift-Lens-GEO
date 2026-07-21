@@ -123,6 +123,31 @@ export interface OutcomeEventDoc {
   createdAt: Date;
 }
 
+/**
+ * A saved search — the light index fields (shown in the history menu) plus the
+ * opaque `snapshot` blob used only to restore the conversation. The list query
+ * projects `snapshot` away so opening the menu never ships megabytes. Scoped to
+ * a user; identity is (userId, conversationId) so the debounced client upsert is
+ * idempotent per conversation. `updatedAt` doubles as the TTL anchor — an active
+ * conversation keeps bumping it, so only stale searches age out (see indexes).
+ */
+export interface HistoryDoc {
+  _id?: ObjectId;
+  userId: string;
+  /** Client-generated conversation id; the restore + dedupe key. */
+  conversationId: string;
+  title: string;
+  subtitle: string;
+  lens: string | null;
+  turnCount: number;
+  productCount: number;
+  thumbnailUrl: string | null;
+  /** Opaque to storage — the shop page owns its shape (ChatSnapshot). */
+  snapshot: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 interface MongoState {
   client: MongoClient;
   indexesEnsured: boolean;
@@ -307,6 +332,19 @@ async function ensureIndexes(db: Db): Promise<void> {
     db
       .collection<OutcomeEventDoc>("outcome_events")
       .createIndex({ userId: 1, productId: 1 }),
+
+    // One history entry per (user, conversation) so the client's debounced
+    // upsert is idempotent.
+    db
+      .collection<HistoryDoc>("search_history")
+      .createIndex({ userId: 1, conversationId: 1 }, { unique: true, name: "history_identity" }),
+    // The menu lists newest-first for a user.
+    db.collection<HistoryDoc>("search_history").createIndex({ userId: 1, updatedAt: -1 }),
+    // TTL: Mongo purges a search 90 days after its last activity. `updatedAt` is
+    // bumped on every follow-up turn, so only genuinely stale searches age out.
+    db
+      .collection<HistoryDoc>("search_history")
+      .createIndex({ updatedAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60, name: "history_ttl" }),
   ]);
 }
 
@@ -336,4 +374,8 @@ export async function getProfileSubjects(): Promise<Collection<ProfileSubjectDoc
 
 export async function getOutcomeEvents(): Promise<Collection<OutcomeEventDoc>> {
   return (await getDb()).collection<OutcomeEventDoc>("outcome_events");
+}
+
+export async function getSearchHistory(): Promise<Collection<HistoryDoc>> {
+  return (await getDb()).collection<HistoryDoc>("search_history");
 }
