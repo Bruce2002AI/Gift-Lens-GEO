@@ -5,10 +5,22 @@ import { ExternalLink, Sparkles, X } from "lucide-react";
 import type { VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
 import { ProductFactsPanel, ProductFactsSummary } from "@/components/catalog/ProductFacts";
+import { VariantSelector } from "@/components/expert/VariantSelector";
 import { WishlistButton } from "@/components/wishlist/WishlistButton";
 import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
 import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
 import { formatMinor } from "@/lib/gift/currency";
+
+/** The variant a product opens on: its designated selection, else first in stock, else first. */
+function defaultVariantId(item: VerifiedBoardItem): string | null {
+  const variants = item.facts.variants;
+  return (
+    variants.find((v) => v.isSelected)?.id ??
+    variants.find((v) => v.available !== false)?.id ??
+    variants[0]?.id ??
+    null
+  );
+}
 
 /**
  * Full product detail in a modal — the reasoning (insight, trade-off) and the
@@ -26,13 +38,15 @@ export function QuickViewModal({
   onOpenProduct?: (item: VerifiedBoardItem) => void;
 }) {
   const [active, setActive] = useState(0);
+  const [variantId, setVariantId] = useState<string | null>(item ? defaultVariantId(item) : null);
   const [activeFor, setActiveFor] = useState(item?.productId);
 
-  // Reset the carousel when a different product opens — the render-time
+  // Reset carousel + variant when a different product opens — the render-time
   // "adjust state on prop change" pattern (no effect, no stale first frame).
   if (item && item.productId !== activeFor) {
     setActiveFor(item.productId);
     setActive(0);
+    setVariantId(defaultVariantId(item));
   }
 
   useEffect(() => {
@@ -58,12 +72,39 @@ export function QuickViewModal({
     for (const img of item.facts.images) {
       if (img.type == null || img.type === "image") push(img.url, img.altText);
     }
+    for (const v of item.facts.variants) push(v.imageUrl, v.title);
     return out;
   }, [item]);
 
   if (!item) return null;
-  const snapshot = snapshotFromBoardItem(item);
+
+  const selectedVariant = item.facts.variants.find((v) => v.id === variantId) ?? null;
+  const priceMinor = selectedVariant?.priceMinor ?? item.priceMinor;
+  const currency = selectedVariant?.currency ?? item.currency;
   const mainImage = gallery[active]?.url ?? item.imageUrl;
+
+  // Shortlist/wishlist against the CHOSEN variant, so the cart permalink and
+  // price track the selection (keyed by productId, so it stays one cart line).
+  const base = snapshotFromBoardItem(item);
+  const snapshot = selectedVariant
+    ? {
+        ...base,
+        url: selectedVariant.url ?? base.url,
+        priceMinor: selectedVariant.priceMinor ?? base.priceMinor,
+        priceMaxMinor: selectedVariant.priceMinor ?? base.priceMaxMinor,
+        currency: selectedVariant.currency ?? base.currency,
+      }
+    : base;
+
+  // Selecting a variant jumps the carousel to that variant's image when it has one.
+  const selectVariant = (id: string) => {
+    setVariantId(id);
+    const url = item.facts.variants.find((v) => v.id === id)?.imageUrl;
+    if (url) {
+      const idx = gallery.findIndex((g) => g.url === url);
+      if (idx >= 0) setActive(idx);
+    }
+  };
 
   return (
     <div
@@ -144,11 +185,15 @@ export function QuickViewModal({
               <h2 className="font-(family-name:--font-display) text-xl font-semibold leading-snug">
                 {item.title}
               </h2>
-              <p className="text-2xl font-bold text-ink">
-                {formatMinor(item.priceMinor, item.currency)}
-              </p>
+              <p className="text-2xl font-bold text-ink">{formatMinor(priceMinor, currency)}</p>
 
               <ProductFactsSummary facts={item.facts} />
+
+              <VariantSelector
+                facts={item.facts}
+                selectedId={variantId}
+                onSelect={selectVariant}
+              />
 
               <div className="flex gap-2 rounded-xl bg-plum-wash px-3 py-2.5 text-sm leading-relaxed text-ink">
                 <Sparkles size={14} className="mt-0.5 shrink-0 text-plum" aria-hidden />
