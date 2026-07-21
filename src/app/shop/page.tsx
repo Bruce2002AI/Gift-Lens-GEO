@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
+  ArrowRight,
   ChevronDown,
   Clock,
   HeartHandshake,
@@ -11,6 +13,7 @@ import {
   Info,
   Loader2,
   PackageSearch,
+  Plus,
   Search,
   Send,
   StickyNote,
@@ -89,6 +92,217 @@ interface ChatSnapshot {
   sort: BoardSort;
   sessionId: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Hero lenses — the launch-screen chip row. All ten modes appear (the style
+// guide differentiates lenses by icon + label, not hue); the first four run the
+// live expert flow, the rest hand off to the classic flow. Plain names on chips,
+// Lens names in captions — see docs/shoplens-style-guide.html.
+// ---------------------------------------------------------------------------
+type HeroLensId = keyof typeof MODE_META;
+
+interface HeroLens {
+  id: HeroLensId;
+  /** Plain chip label. */
+  label: string;
+  /** In the first, always-visible row (vs. behind "More lenses"). */
+  top: boolean;
+  /** Bold lens name shown in the caption. */
+  lensName: string;
+  /** Caption remainder, following the bold lens name. */
+  captionRest: string;
+  /** Typed one-at-a-time into the search placeholder. */
+  placeholders: string[];
+  /** First-person prompt cards under "Try one". */
+  wishes: string[];
+}
+
+const HERO_LENSES: HeroLens[] = [
+  {
+    id: "gift",
+    label: "Gifts",
+    top: true,
+    lensName: "Gift Lens",
+    captionRest: "· tell us about them, we rank gifts by how well they fit",
+    placeholders: [
+      "A retirement gift for my dad who loves fishing",
+      "A housewarming gift for friends who just moved to Goa",
+      "Something thoughtful for my sister's graduation, under ₹2,500",
+    ],
+    wishes: [
+      "An anniversary gift for my partner who loves coffee and pottery, under ₹5,000",
+      "A birthday gift for a 10-year-old who is obsessed with space",
+      "A wedding gift for colleagues, elegant but under ₹3,000",
+      "Something for my mom who loves gardening and morning tea",
+    ],
+  },
+  {
+    id: "skincare",
+    label: "Skincare",
+    top: true,
+    lensName: "Routine Lens",
+    captionRest: "· a simple AM/PM routine built around your preferences, not a diagnosis",
+    placeholders: [
+      "A gentle skincare routine for dry, sensitive skin",
+      "A minimal morning routine with SPF, under ₹2,000",
+      "Something for sudden breakouts before an event next week",
+    ],
+    wishes: [
+      "My skin feels dry and sensitive. A simple routine under ₹3,000, no fragrance",
+      "A beginner routine for oily, acne-prone skin",
+      "A night routine focused on dark spots and uneven tone",
+      "Fragrance-free sunscreen that will not leave a white cast",
+    ],
+  },
+  {
+    id: "style",
+    label: "Outfits",
+    top: true,
+    lensName: "Style Lens",
+    captionRest: "· an occasion and a vibe, turned into one coordinated look",
+    placeholders: [
+      "Something like this jacket, but under ₹4,000",
+      "A linen shirt for a beach wedding in June",
+      "An office wardrobe refresh, minimal and neutral",
+    ],
+    wishes: [
+      "A smart-casual outfit for a first date. Confident, not overdressed, under ₹12,000",
+      "Comfortable but polished outfits for work from home video calls",
+      "A festive kurta set for Diwali that is not too heavy",
+      "White sneakers that go with everything, under ₹5,000",
+    ],
+  },
+  {
+    id: "nutrition",
+    label: "Nutrition",
+    top: true,
+    lensName: "Fuel Lens",
+    captionRest: "· a grocery basket organized around your goal, food first",
+    placeholders: [
+      "High-protein vegetarian snacks for the office",
+      "A weekly grocery basket for two, around ₹4,000",
+      "Clean pre-workout options without too much caffeine",
+    ],
+    wishes: [
+      "An easy vegetarian basket to hit my protein target, around ₹4,500 a week",
+      "Healthy office snacks that are not boring, under ₹1,500 a month",
+      "A beginner supplement stack for someone starting the gym",
+      "Low-sugar breakfast options for a diabetic parent",
+    ],
+  },
+  {
+    id: "swap",
+    label: "Swaps",
+    top: false,
+    lensName: "Swap Lens",
+    captionRest: "· show us a product, we find a version that fits you better",
+    placeholders: [
+      "I like this lamp, find something similar under ₹5,000",
+      "A cheaper alternative to this jacket that ships to India",
+      "This bag, but from a smaller local brand",
+    ],
+    wishes: [
+      "I like this lamp, find something similar under ₹5,000 that ships to India",
+      "A more sustainable version of my usual running shoes",
+      "This desk chair, but cheaper and available near me",
+      "Something with the same look as this watch, different brand",
+    ],
+  },
+  {
+    id: "room",
+    label: "Rooms",
+    top: false,
+    lensName: "Space Lens",
+    captionRest: "· pick a mood for your room, get the pieces that create it",
+    placeholders: [
+      "Make my small bedroom feel warmer and more Scandinavian",
+      "A cozy reading corner for under ₹10,000",
+      "Calm, clutter-free desk setup for a rented flat",
+    ],
+    wishes: [
+      "Make my small bedroom feel warmer and more Scandinavian for under ₹20,000",
+      "A balcony makeover with plants and soft lighting, under ₹8,000",
+      "A calm work-from-home corner in my living room",
+      "Warm lighting for a rented flat, nothing permanent",
+    ],
+  },
+  {
+    id: "travel",
+    label: "Travel",
+    top: false,
+    lensName: "Trip Lens",
+    captionRest: "· a compact packing kit for exactly where you are going",
+    placeholders: [
+      "Iceland for 7 days in October, hiking and city",
+      "A carry-on only kit for a week in Singapore",
+      "Monsoon trek essentials for the Western Ghats",
+    ],
+    wishes: [
+      "Iceland for 7 days in October — compact kit for hiking and city sightseeing",
+      "A beach week in the Andamans, carry-on only",
+      "First solo trip to Japan in spring, two weeks",
+      "Weekend trek gear for the monsoon, under ₹6,000",
+    ],
+  },
+  {
+    id: "hobby",
+    label: "Hobbies",
+    top: false,
+    lensName: "Starter Lens",
+    captionRest: "· a beginner kit for the hobby you keep putting off",
+    placeholders: [
+      "Beginner pour-over coffee kit under ₹8,000",
+      "Everything to start watercolor painting",
+      "A starter home gym in a small space",
+    ],
+    wishes: [
+      "Beginner pour-over coffee kit under ₹8,000",
+      "Everything I need to start watercolor painting, essentials only",
+      "A starter kit for baking bread at home",
+      "Home workout setup for a small apartment, under ₹12,000",
+    ],
+  },
+  {
+    id: "lifestage",
+    label: "Life changes",
+    top: false,
+    lensName: "Chapter Lens",
+    captionRest: "· a big life change, planned as must-haves now and later",
+    placeholders: [
+      "Moving into my first apartment with ₹30,000",
+      "Setting up a dorm room from scratch",
+      "Starting my first office job next month",
+    ],
+    wishes: [
+      "Moving into my first apartment with ₹30,000 for the essentials",
+      "Setting up a nursery, must-haves first",
+      "Dorm room essentials for college in August",
+      "New job wardrobe and desk setup, phased over two months",
+    ],
+  },
+  {
+    id: "occasion",
+    label: "Occasions",
+    top: false,
+    lensName: "Ready Lens",
+    captionRest: "· one plan that gets you fully ready for the day",
+    placeholders: [
+      "Get me ready for a beach wedding",
+      "Hosting my first dinner party next weekend",
+      "A week of festive prep for Diwali at home",
+    ],
+    wishes: [
+      "Get me ready for a beach wedding — outfit, grooming, and a gift",
+      "Hosting eight people for dinner, food to table setting",
+      "My convocation next month, head to toe",
+      "First wedding anniversary dinner at home, everything covered",
+    ],
+  },
+];
+
+/** The four lenses that drive the live expert flow; the rest hand off to classic. */
+const isExpertLens = (id: HeroLensId): id is ExpertLensId =>
+  (EXPERT_LENS_IDS as readonly string[]).includes(id);
 
 const SELF_SUBJECT: SubjectSummary = {
   subjectId: "self",
@@ -209,6 +423,7 @@ function ResultsSkeleton() {
 
 export default function ExpertShopPage() {
   const { status: authStatus } = useSession();
+  const router = useRouter();
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [lens, setLens] = useState<ExpertLensId | null>(null);
@@ -231,6 +446,14 @@ export default function ExpertShopPage() {
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string; name: string } | null>(null);
   const [sort, setSort] = useState<BoardSort>("picks");
 
+  // --- Hero launch state -------------------------------------------------
+  /** Which lens the launch-screen chip row has selected (drives caption/prompts). */
+  const [activeHeroLens, setActiveHeroLens] = useState<HeroLensId>("gift");
+  /** Whether the "More lenses" row is expanded. */
+  const [lensExpanded, setLensExpanded] = useState(false);
+  /** The one ambient animation on the page: the search placeholder types itself. */
+  const [typedPlaceholder, setTypedPlaceholder] = useState("");
+
   const idRef = useRef(0);
   const autoCollapsedRef = useRef(false);
   /** The active subject the last `subjects` event reported — detects switches. */
@@ -240,8 +463,11 @@ export default function ExpertShopPage() {
   const lastPresentBoardRef = useRef<VerifiedBoardCategory[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const heroInputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  /** Live mirror of `input` so the typing effect can pause without restarting. */
+  const inputValueRef = useRef("");
 
   // --- Search history (device-local) -------------------------------------
   const { pendingRestoreId, consumeRestore, newSearchNonce } = useHistory();
@@ -269,6 +495,59 @@ export default function ExpertShopPage() {
   useEffect(() => {
     return () => abortRef.current?.abort();
   }, []);
+
+  // Keep the typing effect's view of the input current without re-running it.
+  useEffect(() => {
+    inputValueRef.current = input;
+  }, [input]);
+
+  // The one ambient animation on the page: type each lens's example prompts into
+  // the search placeholder, one character at a time. Launch screen only, paused
+  // while the shopper types, and skipped entirely under reduced motion.
+  useEffect(() => {
+    if (feed.length > 0) return; // launch screen only
+    const lens = HERO_LENSES.find((l) => l.id === activeHeroLens) ?? HERO_LENSES[0];
+    const list = lens.placeholders;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // Static placeholder under reduced motion — no ambient typing.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTypedPlaceholder(list[0]);
+      return;
+    }
+    let wIdx = 0;
+    let cIdx = 0;
+    let deleting = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (inputValueRef.current.length > 0) {
+        setTypedPlaceholder("");
+        timer = setTimeout(tick, 800);
+        return;
+      }
+      const word = list[wIdx];
+      if (!deleting) {
+        cIdx += 1;
+        setTypedPlaceholder(word.slice(0, cIdx));
+        if (cIdx === word.length) {
+          deleting = true;
+          timer = setTimeout(tick, 2200);
+          return;
+        }
+        timer = setTimeout(tick, 38 + Math.random() * 40);
+      } else {
+        cIdx -= 3;
+        if (cIdx <= 0) {
+          cIdx = 0;
+          deleting = false;
+          wIdx = (wIdx + 1) % list.length;
+        }
+        setTypedPlaceholder(word.slice(0, Math.max(cIdx, 0)));
+        timer = setTimeout(tick, 16);
+      }
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [activeHeroLens, feed.length]);
 
   /** Once products exist the board owns the panel — fold the Portrait away once. */
   useEffect(() => {
@@ -736,6 +1015,37 @@ export default function ExpertShopPage() {
     inputRef.current?.focus();
   }, []);
 
+  /** Pick a lens on the launch screen — expert lenses also arm the live flow. */
+  const selectHeroLens = useCallback((id: HeroLensId) => {
+    setActiveHeroLens(id);
+    if (isExpertLens(id)) setLens(id);
+  }, []);
+
+  /**
+   * Submit from the launch screen. Expert lenses start the live conversation
+   * right here; the other six carry the prompt to the classic flow.
+   */
+  const submitHero = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    if (isExpertLens(activeHeroLens)) {
+      const image = pendingImage;
+      setInput("");
+      setPendingImage(null);
+      sendMessage(text, { lens: activeHeroLens, imageDataUrl: image?.dataUrl });
+    } else {
+      const params = new URLSearchParams({ mode: activeHeroLens, q: text });
+      router.push(`/shop/classic?${params.toString()}`);
+    }
+  }, [activeHeroLens, input, pendingImage, router, sendMessage]);
+
+  /** Tap a prompt card — fill the search box (the shopper still hits go). */
+  const pickWish = useCallback((text: string) => {
+    setInput(text);
+    heroInputRef.current?.focus();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   const onPickImage = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -941,7 +1251,7 @@ export default function ExpertShopPage() {
               compact ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
             } ${
               active
-                ? "border-plum bg-plum text-white"
+                ? "border-transparent bg-butter font-medium text-ink shadow-[0_4px_12px_-4px_rgba(255,195,20,.5)]"
                 : "border-line bg-white text-ink hover:border-plum/40"
             }`}
           >
@@ -1044,73 +1354,191 @@ export default function ExpertShopPage() {
   // starts. The split results view only appears once there's a conversation.
   // ---------------------------------------------------------------------------
   if (!hasStarted) {
+    const heroLens = HERO_LENSES.find((l) => l.id === activeHeroLens) ?? HERO_LENSES[0];
+    const HeroIcon = modeIcon(MODE_META[heroLens.id].icon);
+
     return (
-      <div className="relative mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-2xl flex-col justify-center px-4 py-10 sm:px-6">
-        {/* Soft warm glow behind the composer so the empty state feels inviting. */}
+      <div className="relative">
+        {/* One soft glow behind the hero — blue with a butter highlight. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-1/4 -z-10 mx-auto h-72 max-w-lg rounded-full bg-plum/10 blur-3xl"
+          className="pointer-events-none fixed left-1/2 top-[-240px] -z-10 h-[640px] w-[960px] -translate-x-1/2"
+          style={{
+            background:
+              "radial-gradient(ellipse 58% 55% at 40% 40%, rgba(45,91,255,.08), transparent 65%), radial-gradient(ellipse 48% 50% at 66% 34%, rgba(255,216,77,.14), transparent 65%)",
+          }}
         />
-        <header className="mb-6 animate-rise text-center">
-          <h1 className="font-(family-name:--font-display) text-4xl font-semibold">ShopLens</h1>
-          <p className="mx-auto mt-2 max-w-md text-ink-soft">
-            Describe what you need — the right expert shows its work and finds live, buyable products.
+
+        <main className="relative z-[1] mx-auto max-w-[760px] px-6 pb-20 pt-11 text-center sm:pt-16">
+          <h1 className="animate-rise font-(family-name:--font-display) text-[clamp(38px,6vw,58px)] font-semibold leading-[1.08] tracking-[-0.02em]">
+            What are you
+            <br />
+            looking for?
+          </h1>
+          <p className="mx-auto mt-[18px] max-w-[480px] text-[17px] leading-[1.55] text-ink-soft">
+            Describe it in your words. We find real products that ship to you.
           </p>
-        </header>
 
-        <div className="animate-rise">{composer}</div>
-
-        <div className="mt-5">{renderLensPicker(false)}</div>
-
-        {recentHistory.length > 0 && (
-          <div className="mt-8">
-            <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
-              Recent searches
-            </p>
-            <div className="flex flex-col gap-2">
-              {recentHistory.slice(0, 4).map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  className="chip w-full justify-start text-left"
-                  onClick={() => {
-                    const snap = loadSnapshot<ChatSnapshot>(entry.id);
-                    if (snap) restoreConversation(entry.id, snap);
-                  }}
-                >
-                  <Clock size={14} aria-hidden className="shrink-0" />
-                  <span className="truncate">{entry.title}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="mt-8">
-          <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
-            Or try one
-          </p>
-          <div className="flex flex-col gap-2">
-            {EXPERT_LENS_IDS.map((id) => {
-              const meta = MODE_META[id];
-              const Icon = modeIcon(meta.icon);
+          {/* Lens chips — exactly one active, and it's the only butter object. */}
+          <div
+            className="mt-9 flex flex-wrap items-center justify-center gap-2.5"
+            role="tablist"
+            aria-label="Lenses"
+          >
+            {HERO_LENSES.map((l) => {
+              const active = l.id === activeHeroLens;
+              if (!l.top && !lensExpanded && !active) return null;
+              const Icon = modeIcon(MODE_META[l.id].icon);
               return (
                 <button
-                  key={id}
+                  key={l.id}
                   type="button"
-                  className="chip w-full justify-start text-left"
-                  onClick={() => {
-                    setLens(id);
-                    sendMessage(meta.examplePrompt, { lens: id });
-                  }}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => selectHeroLens(l.id)}
+                  className={`inline-flex items-center gap-2.5 rounded-full border px-[22px] py-3 text-[15px] transition-all ${
+                    active
+                      ? "border-transparent bg-butter font-semibold text-ink shadow-[0_6px_18px_-5px_rgba(255,195,20,.55)]"
+                      : "border-line bg-white font-medium text-ink shadow-(--shadow-card) hover:-translate-y-px hover:shadow-(--shadow-hover)"
+                  }`}
                 >
-                  <Icon size={14} aria-hidden className="shrink-0" />
-                  {meta.examplePrompt}
+                  <Icon
+                    size={17}
+                    strokeWidth={1.9}
+                    aria-hidden
+                    className={active ? "opacity-100" : "opacity-70"}
+                  />
+                  {l.label}
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setLensExpanded((open) => !open)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-line bg-transparent px-[22px] py-3 text-[15px] font-medium text-ink-soft transition-colors hover:border-ink-faint hover:text-ink"
+            >
+              <Plus
+                size={14}
+                strokeWidth={2.4}
+                aria-hidden
+                className={`transition-transform ${lensExpanded ? "rotate-45" : ""}`}
+              />
+              {lensExpanded ? "Fewer lenses" : "More lenses"}
+            </button>
           </div>
-        </div>
+
+          <p className="mt-3.5 min-h-[20px] text-[13.5px] text-ink-faint">
+            <strong className="font-semibold text-ink-soft">{heroLens.lensName}</strong>{" "}
+            {heroLens.captionRest}
+          </p>
+
+          {/* Search — the hero component: largest radius, blue-cast shadow. */}
+          <div className="mt-[22px]">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                submitHero();
+              }}
+              className="flex items-center gap-1.5 rounded-[28px] border-[1.5px] border-line bg-white py-2.5 pl-6 pr-2.5 text-left shadow-(--shadow-hero) transition-[border-color] focus-within:border-plum"
+            >
+              <input
+                id="hero-search"
+                ref={heroInputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={typedPlaceholder}
+                aria-label="Describe what you are looking for"
+                className="min-w-0 flex-1 border-none bg-transparent py-3 text-[17px] text-ink outline-none placeholder:text-ink-faint"
+              />
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={onPickImage}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex shrink-0 items-center gap-2 rounded-full px-3.5 py-2.5 text-[14px] font-medium text-ink-soft transition-colors hover:bg-plum-wash hover:text-plum-dark"
+              >
+                <ImagePlus size={18} aria-hidden />
+                <span className="hidden sm:inline">Add a photo</span>
+              </button>
+              <button
+                type="submit"
+                aria-label="Search"
+                className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-plum text-white transition-all hover:scale-105 hover:bg-plum-dark"
+              >
+                <ArrowRight size={19} strokeWidth={2.2} aria-hidden />
+              </button>
+            </form>
+
+            {pendingImage ? (
+              <div className="mx-auto mt-3 flex max-w-sm items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-[13px] text-ink-soft">
+                <ImagePlus size={14} aria-hidden className="shrink-0 text-plum" />
+                <span className="truncate">{pendingImage.name}</span>
+                <button
+                  type="button"
+                  aria-label="Remove photo"
+                  onClick={() => setPendingImage(null)}
+                  className="ml-auto rounded-full p-0.5 text-ink-faint hover:text-danger"
+                >
+                  <X size={14} aria-hidden />
+                </button>
+              </div>
+            ) : (
+              <p className="mt-3 text-[13.5px] text-ink-faint">
+                Seen something you love? Add a photo, we will find it for you.
+              </p>
+            )}
+          </div>
+
+          {recentHistory.length > 0 && (
+            <div className="mt-11">
+              <p className="text-[12.5px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+                Recent searches
+              </p>
+              <div className="mt-3.5 flex flex-wrap justify-center gap-2.5">
+                {recentHistory.slice(0, 4).map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => {
+                      const snap = loadSnapshot<ChatSnapshot>(entry.id);
+                      if (snap) restoreConversation(entry.id, snap);
+                    }}
+                    className="inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-white px-4 py-2 text-[14px] text-ink shadow-(--shadow-card) transition-all hover:-translate-y-px hover:shadow-(--shadow-hover)"
+                  >
+                    <Clock size={14} aria-hidden className="shrink-0 text-ink-faint" />
+                    <span className="truncate">{entry.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Prompt cards — first person, always with a concrete constraint. */}
+          <p className="mt-14 text-[12.5px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+            Try one
+          </p>
+          <div className="mt-[18px] grid grid-cols-1 gap-3 text-left sm:grid-cols-2">
+            {heroLens.wishes.map((wish) => (
+              <button
+                key={wish}
+                type="button"
+                onClick={() => pickWish(wish)}
+                className="flex items-start gap-3.5 rounded-[18px] border border-line bg-white px-5 py-[18px] text-left text-[15px] leading-[1.5] text-ink transition-all hover:-translate-y-0.5 hover:border-transparent hover:shadow-(--shadow-hover)"
+              >
+                <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px] bg-butter-soft">
+                  <HeroIcon size={17} strokeWidth={1.8} aria-hidden className="text-ink opacity-75" />
+                </span>
+                <span className="pt-[3px]">{wish}</span>
+              </button>
+            ))}
+          </div>
+        </main>
       </div>
     );
   }

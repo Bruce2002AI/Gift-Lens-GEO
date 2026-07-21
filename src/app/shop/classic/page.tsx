@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CheckCircle2, Loader2, RotateCcw, Send, ShieldAlert } from "lucide-react";
 import type { AgentResponse, Blueprint, ModeMeta, ShoppingModeId } from "@/lib/modes/types";
 import type { TraceEvent } from "@/lib/catalog/types";
@@ -19,7 +20,8 @@ interface ChatMessage {
   content: string;
 }
 
-export default function ShopPage() {
+function ShopClassicInner() {
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -125,7 +127,7 @@ export default function ShopPage() {
     ]);
   };
 
-  const send = async (text: string) => {
+  const send = async (text: string, modeId?: ShoppingModeId) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
     setError(null);
@@ -136,7 +138,7 @@ export default function ShopPage() {
     try {
       // Every fresh message is unapproved — plan modes must (re)show their
       // blueprint for approval before any live search.
-      const json = await callAgent(next);
+      const json = await callAgent(next, modeId ? { modeId } : {});
       if (json) applyResponse(json);
     } catch {
       setError("Could not reach the server — is the dev server running?");
@@ -144,6 +146,30 @@ export default function ShopPage() {
       setLoading(false);
     }
   };
+
+  // Arrive from the home hero with a lens + prompt (?mode=…&q=…): pin the lens
+  // and run the prompt straight away. Runs once.
+  const didInitRef = useRef(false);
+  useEffect(() => {
+    if (didInitRef.current) return;
+    const modeParam = searchParams.get("mode");
+    const q = searchParams.get("q");
+    const mode =
+      modeParam && modeParam in MODE_META ? (modeParam as ShoppingModeId) : null;
+    if (!mode && !q) return;
+    didInitRef.current = true;
+    // Applying an external navigation signal (the ?mode=&q= handoff) to state.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (mode) setPinnedMode(mode);
+    if (q) {
+      void send(q, mode ?? undefined);
+    } else if (mode) {
+      setInput(MODE_META[mode].examplePrompt);
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // `send` is intentionally excluded — this fires once, guarded by the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const approvePlan = async () => {
     if (!resp || !pendingBlueprint || loading) return;
@@ -221,7 +247,7 @@ export default function ShopPage() {
               title={m.tagline}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition ${
                 active
-                  ? "border-plum bg-plum text-white"
+                  ? "border-transparent bg-butter font-medium text-ink shadow-[0_4px_12px_-4px_rgba(255,195,20,.5)]"
                   : "border-line bg-white text-ink hover:border-plum/40"
               }`}
             >
@@ -454,5 +480,17 @@ export default function ShopPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * useSearchParams requires a Suspense boundary during prerender — the page
+ * reads ?mode=&q= handed off from the home hero.
+ */
+export default function ShopPage() {
+  return (
+    <Suspense fallback={null}>
+      <ShopClassicInner />
+    </Suspense>
   );
 }
