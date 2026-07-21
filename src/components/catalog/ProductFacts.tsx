@@ -124,33 +124,45 @@ export function ProductFactsSummary({ facts }: { facts: ProductFacts }) {
     facts.totalVariants <= 1;
   if (nothingToShow) return null;
 
+  const hasTags =
+    hasStockSignal ||
+    selected?.runningLow === true ||
+    condition.length > 0 ||
+    facts.totalVariants > 1;
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+    // Rating and tag pills sit on their own rows — a star meter and pills don't
+    // share a baseline cleanly, so keep them stacked rather than inline.
+    <div className="space-y-1.5">
       {facts.rating.value != null && <StarRating rating={facts.rating} />}
 
-      {hasStockSignal &&
-        (anyInStock ? (
-          <Pill tone="ok">
-            <BadgeCheck size={11} aria-hidden />
-            {facts.totalVariants > 1
-              ? `${facts.inStockVariants} of ${facts.totalVariants} in stock`
-              : "In stock"}
-          </Pill>
-        ) : (
-          <Pill tone="warn">Out of stock</Pill>
-        ))}
+      {hasTags && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {hasStockSignal &&
+            (anyInStock ? (
+              <Pill tone="ok">
+                <BadgeCheck size={11} aria-hidden />
+                {facts.totalVariants > 1
+                  ? `${facts.inStockVariants} of ${facts.totalVariants} in stock`
+                  : "In stock"}
+              </Pill>
+            ) : (
+              <Pill tone="warn">Out of stock</Pill>
+            ))}
 
-      {selected?.runningLow === true && <Pill tone="warn">Running low</Pill>}
+          {selected?.runningLow === true && <Pill tone="warn">Running low</Pill>}
 
-      {condition.map((c) => (
-        <Pill key={c}>{c === "new" ? "New" : c}</Pill>
-      ))}
+          {condition.map((c) => (
+            <Pill key={c}>{c === "new" ? "New" : c}</Pill>
+          ))}
 
-      {facts.totalVariants > 1 && (
-        <Pill>
-          <Boxes size={11} aria-hidden />
-          {facts.totalVariants} variants
-        </Pill>
+          {facts.totalVariants > 1 && (
+            <Pill>
+              <Boxes size={11} aria-hidden />
+              {facts.totalVariants} variants
+            </Pill>
+          )}
+        </div>
       )}
     </div>
   );
@@ -248,6 +260,7 @@ export function ProductFactsPanel({
   productId,
   source,
   className = "",
+  hideMedia = false,
 }: {
   facts: ProductFacts;
   productId: string;
@@ -258,6 +271,8 @@ export function ProductFactsPanel({
    */
   source: CatalogSource;
   className?: string;
+  /** When the caller already shows the images (e.g. a carousel), skip Media here. */
+  hideMedia?: boolean;
 }) {
   const {
     specs,
@@ -282,7 +297,7 @@ export function ProductFactsPanel({
     description.trim().length > 0,
     variants.length > 0,
     options.length > 0,
-    images.length > 0,
+    !hideMedia && images.length > 0,
     seller != null,
     categories.length > 0,
   ].filter(Boolean).length;
@@ -415,7 +430,7 @@ export function ProductFactsPanel({
           </Section>
         )}
 
-        {images.length > 0 && (
+        {!hideMedia && images.length > 0 && (
           <Section icon={Images} title="Media" count={images.length}>
             <div className="flex flex-wrap gap-1.5">
               {images.slice(0, 8).map((img, i) => (

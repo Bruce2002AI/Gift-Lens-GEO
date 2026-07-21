@@ -1,17 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ExternalLink, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Sparkles } from "lucide-react";
 import type { VerifiedBoardCategory, VerifiedBoardItem } from "@/lib/agent/types";
 import { ProductImage } from "@/components/catalog/ProductImage";
-import {
-  ProductFactsPanel,
-  ProductFactsSummary,
-} from "@/components/catalog/ProductFacts";
+import { ProductFactsSummary } from "@/components/catalog/ProductFacts";
 import { formatMinor } from "@/lib/gift/currency";
 import { WishlistButton } from "@/components/wishlist/WishlistButton";
 import { ShortlistButton } from "@/components/shortlist/ShortlistButton";
 import { snapshotFromBoardItem } from "@/lib/wishlist/snapshot";
+import { QuickViewModal } from "@/components/expert/QuickViewModal";
 
 /** How the board arranges each category's options. */
 export type BoardLayout = "rail" | "grid";
@@ -86,9 +84,15 @@ export function ProductBoard({
   showHeading?: boolean;
 }) {
   const total = board.reduce((n, category) => n + category.items.length, 0);
+  const [quickView, setQuickView] = useState<VerifiedBoardItem | null>(null);
 
   return (
     <section aria-label="Products found" className="space-y-3">
+      <QuickViewModal
+        item={quickView}
+        onClose={() => setQuickView(null)}
+        onOpenProduct={onOpenProduct}
+      />
       {showHeading && (
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="font-(family-name:--font-display) text-lg font-semibold">Products</h2>
@@ -115,6 +119,7 @@ export function ProductBoard({
               category={category}
               onMoreLike={onMoreLike}
               onOpenProduct={onOpenProduct}
+              onQuickView={setQuickView}
               busy={busy}
               layout={layout}
               sort={sort}
@@ -130,6 +135,7 @@ function CategorySection({
   category,
   onMoreLike,
   onOpenProduct,
+  onQuickView,
   busy,
   layout,
   sort,
@@ -137,6 +143,7 @@ function CategorySection({
   category: VerifiedBoardCategory;
   onMoreLike: (productId: string) => void;
   onOpenProduct?: (item: VerifiedBoardItem) => void;
+  onQuickView: (item: VerifiedBoardItem) => void;
   busy: boolean;
   layout: BoardLayout;
   sort: BoardSort;
@@ -188,7 +195,7 @@ function CategorySection({
         <div className="sticky top-[3.75rem] z-20 -mx-1 bg-cream/92 px-1 py-2 backdrop-blur-sm">
           {heading}
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
           {items.map((item, i) => (
             <div
               key={item.productId}
@@ -199,6 +206,7 @@ function CategorySection({
                 item={item}
                 onMoreLike={onMoreLike}
                 onOpenProduct={onOpenProduct}
+                onQuickView={onQuickView}
                 busy={busy}
               />
             </div>
@@ -230,6 +238,7 @@ function CategorySection({
                 item={item}
                 onMoreLike={onMoreLike}
                 onOpenProduct={onOpenProduct}
+                onQuickView={onQuickView}
                 busy={busy}
               />
             </div>
@@ -265,48 +274,48 @@ function BoardCard({
   item,
   onMoreLike,
   onOpenProduct,
+  onQuickView,
   busy,
 }: {
   item: VerifiedBoardItem;
   onMoreLike: (productId: string) => void;
   onOpenProduct?: (item: VerifiedBoardItem) => void;
+  onQuickView: (item: VerifiedBoardItem) => void;
   busy: boolean;
 }) {
+  const open = () => {
+    onOpenProduct?.(item);
+    onQuickView(item);
+  };
+
   return (
     <article
-      className={`flex h-full flex-col overflow-hidden rounded-xl border bg-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-(--shadow-lift) ${
+      className={`group relative flex h-full flex-col overflow-hidden rounded-xl border bg-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-(--shadow-lift) ${
         item.isPick ? "border-plum/45 shadow-(--shadow-card)" : "border-line"
       }`}
     >
-      <div className="relative">
-        {item.productUrl ? (
-          <a
-            href={item.productUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => onOpenProduct?.(item)}
-            aria-label={`View ${item.title} on the merchant site (opens in a new tab)`}
-            className="group block"
-          >
-            <ProductImage
-              src={item.imageUrl}
-              alt={item.title}
-              className="aspect-square w-full transition-transform duration-300 group-hover:scale-105"
-            />
-            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/0 opacity-0 transition-all duration-200 group-hover:bg-ink/30 group-hover:opacity-100">
-              <span className="inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-semibold text-ink shadow-(--shadow-card)">
-                <ExternalLink size={10} aria-hidden />
-                View
-              </span>
-            </span>
-          </a>
-        ) : (
-          <ProductImage src={item.imageUrl} alt={item.title} className="aspect-square w-full" />
-        )}
+      {/* Image opens the quick-view modal — where the full detail now lives. */}
+      <button
+        type="button"
+        onClick={open}
+        aria-label={`Quick view ${item.title}`}
+        className="relative block w-full text-left"
+      >
+        <ProductImage
+          src={item.imageUrl}
+          alt={item.title}
+          className="aspect-square w-full transition-transform duration-300 group-hover:scale-105"
+        />
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/0 opacity-0 transition-all duration-200 group-hover:bg-ink/25 group-hover:opacity-100">
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-(--shadow-card)">
+            <Eye size={12} aria-hidden />
+            Quick view
+          </span>
+        </span>
         {item.isPick && (
           <span
             title="Among the expert's top picks in this category"
-            className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[10px] font-semibold text-white"
+            className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-plum px-2 py-0.5 text-[10px] font-semibold text-white"
           >
             <Sparkles size={10} aria-hidden />
             AI pick
@@ -315,52 +324,40 @@ function BoardCard({
         {item.source === "mock" && (
           <span
             title="Demo catalog data — not a live listing"
-            className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+            className="absolute bottom-2 left-2 rounded-full bg-warn/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
           >
             Demo data
           </span>
         )}
-        <WishlistButton
-          input={snapshotFromBoardItem(item)}
-          className="absolute right-2 top-2 z-10 !h-8 !w-8"
-        />
-      </div>
+      </button>
+      <WishlistButton
+        input={snapshotFromBoardItem(item)}
+        className="absolute right-2 top-2 z-10 !h-8 !w-8"
+      />
 
-      <div className="flex flex-1 flex-col gap-1.5 p-2.5">
+      <div className="flex flex-1 flex-col gap-1 p-2.5">
         {item.merchant && (
           <p className="truncate text-[10px] font-medium uppercase tracking-wide text-ink-soft">
             {item.merchant}
           </p>
         )}
-        <h4 className="line-clamp-2 text-xs font-medium leading-snug text-ink">{item.title}</h4>
+        <button
+          type="button"
+          onClick={open}
+          className="line-clamp-2 text-left text-xs font-medium leading-snug text-ink hover:text-plum"
+        >
+          {item.title}
+        </button>
         <p className="text-sm font-bold text-ink">{formatMinor(item.priceMinor, item.currency)}</p>
 
-        {/* Rating/stock/condition stay visible on every board tile. */}
+        {/* One necessary at-a-glance signal (rating/stock); the rest is in quick view. */}
         <ProductFactsSummary facts={item.facts} />
 
-        <p className="flex gap-1.5 rounded-lg bg-plum-wash px-2 py-1.5 text-[11px] leading-relaxed text-ink">
-          <Sparkles size={11} className="mt-0.5 shrink-0 text-plum" aria-hidden />
-          <span className="line-clamp-3">{item.insight}</span>
-        </p>
-
-        {item.tradeoff && (
-          <p className="text-[11px] leading-relaxed text-ink-soft">
-            <span className="font-semibold text-ink">Trade-off:</span> {item.tradeoff}
-          </p>
-        )}
-
-        <ProductFactsPanel
-          facts={item.facts}
-          productId={item.productId}
-          source={item.source}
-          className="mt-1"
-        />
-
-        <div className="mt-auto flex gap-1.5 pt-1.5">
+        <div className="mt-auto flex gap-1.5 pt-2">
           <button
             type="button"
-            disabled={busy}
             onClick={() => onMoreLike(item.productId)}
+            disabled={busy}
             aria-label={`Show products similar to ${item.title}`}
             title="Find very similar options anchored on this one"
             className={ACTION_CLASS}
