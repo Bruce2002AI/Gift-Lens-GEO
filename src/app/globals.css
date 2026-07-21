@@ -1,18 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  /* Warm, modern, premium palette */
-  --color-cream: #faf6f0;
-  --color-cream-deep: #f3ecdf;
-  --color-ink: #2a2724;
-  --color-ink-soft: #5c554c;
-  --color-plum: #713a8b;
-  --color-plum-dark: #55296b;
-  --color-plum-wash: #f3ecf7;
+  /* ShopLens style guide palette — warm paper, dark ink, one working color
+     (blue), one personality color (butter). See docs/shoplens-style-guide.html.
+     Legacy token NAMES (cream/plum/gold) are kept so existing classes keep
+     working, but they now hold the guide's Paper/Blue/Butter values. */
+  --color-cream: #fafaf7; /* Paper — page background, never pure white */
+  --color-cream-deep: #f0f0ea;
+  --color-ink: #1c2230;
+  --color-ink-soft: #5b6372;
+  --color-ink-faint: #949cab; /* Helper text, placeholders, labels */
+  --color-plum: #2d5bff; /* Blue — primary actions, brand, focus */
+  --color-plum-dark: #1e45d6; /* Blue deep — hover/pressed of Blue only */
+  --color-plum-wash: #edf1ff; /* Blue tint — ghost hover, subtle highlights */
+  --color-butter: #ffd84d; /* Selected state only — always with Ink text */
+  --color-butter-soft: #fff3c2; /* Icon tiles, gentle accents */
+  /* `gold` retained for the semantic care/caution accent (readable amber). */
   --color-gold: #a8821f;
-  --color-gold-wash: #f7f0dc;
-  --color-sand: #efe8dc;
-  --color-line: #e5dcce;
+  --color-gold-wash: #fff3c2;
+  --color-sand: #f1f1eb;
+  --color-line: #e8e8e2;
   --color-ok: #2f7d4f;
   --color-warn: #b45309;
   --color-danger: #b3362b;
@@ -26,10 +33,14 @@
   --color-score-track: #ece3d3;
 
   --font-display: var(--font-fraunces), Georgia, serif;
-  --font-body: var(--font-inter), system-ui, sans-serif;
+  --font-body: var(--font-dm-sans), system-ui, sans-serif;
 
-  --shadow-card: 0 1px 2px rgb(42 39 36 / 0.05), 0 6px 24px -8px rgb(42 39 36 / 0.12);
-  --shadow-lift: 0 2px 4px rgb(42 39 36 / 0.06), 0 16px 40px -12px rgb(42 39 36 / 0.18);
+  /* Style-guide shadow scale. Resting for chips/controls, hover for lifted
+     cards, hero for the search bar only (blue-cast, strongest on the page). */
+  --shadow-card: 0 2px 8px -2px rgb(28 34 48 / 0.08);
+  --shadow-hover: 0 12px 28px -12px rgb(28 34 48 / 0.18);
+  --shadow-lift: 0 12px 28px -12px rgb(28 34 48 / 0.18);
+  --shadow-hero: 0 2px 6px rgb(28 34 48 / 0.04), 0 18px 44px -18px rgb(45 91 255 / 0.16);
 }
 
 html {
@@ -93,9 +104,10 @@ button:disabled {
   border-radius: 4px;
 }
 
-/* The composer shows its focus state via the wrapper's ring, so the textarea
-   itself shouldn't also draw the global focus outline. */
-#expert-input:focus-visible {
+/* The composer and hero search show focus via their wrapper's border/ring, so
+   the inner field shouldn't also draw the global focus outline. */
+#expert-input:focus-visible,
+#hero-search:focus-visible {
   outline: none;
 }
 

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShopLens — Style Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FAFAF7;
+    --ink: #1C2230;
+    --ink-soft: #5B6372;
+    --ink-faint: #949CAB;
+    --blue: #2D5BFF;
+    --blue-deep: #1E45D6;
+    --blue-tint: #EDF1FF;
+    --butter: #FFD84D;
+    --butter-soft: #FFF3C2;
+    --line: #E8E8E2;
+    --card: #FFFFFF;
+    --radius-lg: 28px;
+    --radius-md: 18px;
+    --radius-pill: 999px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 100px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 28px; }
+
+  header { padding: 64px 0 20px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  header h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 40px; letter-spacing: -0.02em; }
+  header p { margin-top: 10px; color: var(--ink-soft); font-size: 16px; max-width: 560px; line-height: 1.55; }
+
+  section { padding: 44px 0 8px; }
+  h2 {
+    font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 22px;
+  }
+  h3 { font-size: 16px; font-weight: 600; margin: 26px 0 10px; }
+  p.note { color: var(--ink-soft); font-size: 14.5px; line-height: 1.6; max-width: 640px; margin-bottom: 14px; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+
+  /* swatches */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .swatch { border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--line); background: var(--card); }
+  .swatch .chip-color { height: 74px; }
+  .swatch .meta { padding: 12px 14px; }
+  .swatch .name { font-weight: 600; font-size: 14px; }
+  .swatch .hex { color: var(--ink-faint); margin-top: 2px; }
+  .swatch .use { margin-top: 6px; font-size: 12.5px; color: var(--ink-soft); line-height: 1.45; }
+
+  /* type specimens */
+  .spec { padding: 18px 0; border-bottom: 1px solid var(--line); display: flex; gap: 28px; align-items: baseline; }
+  .spec:last-child { border-bottom: none; }
+  .spec .sample { flex: 1; }
+  .spec .props { width: 240px; flex-shrink: 0; color: var(--ink-faint); font-size: 12.5px; line-height: 1.7; }
+  .t-display { font-family: 'Fraunces', serif; font-weight: 600; font-size: 48px; letter-spacing: -0.02em; line-height: 1.08; }
+  .t-h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 28px; letter-spacing: -0.01em; }
+  .t-body-lg { font-size: 17px; line-height: 1.55; }
+  .t-body { font-size: 15px; line-height: 1.5; }
+  .t-caption { font-size: 13.5px; color: var(--ink-faint); }
+  .t-label { font-size: 12.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+
+  /* component demos */
+  .demo {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-md);
+    padding: 30px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    margin-bottom: 12px;
+  }
+  .demo.stack { flex-direction: column; align-items: stretch; }
+
+  .btn-primary {
+    border: none; cursor: pointer; font-family: inherit;
+    background: var(--blue); color: #fff;
+    font-size: 15px; font-weight: 600;
+    padding: 13px 26px; border-radius: var(--radius-pill);
+    transition: background .15s, transform .15s;
+  }
+  .btn-primary:hover { background: var(--blue-deep); transform: translateY(-1px); }
+  .btn-ghost {
+    border: none; cursor: pointer; font-family: inherit;
+    background: none; color: var(--ink-soft);
+    font-size: 14px; font-weight: 500;
+    padding: 11px 16px; border-radius: var(--radius-pill);
+    transition: background .15s, color .15s;
+  }
+  .btn-ghost:hover { background: var(--blue-tint); color: var(--blue-deep); }
+  .icon-btn {
+    width: 48px; height: 48px; border: none; cursor: pointer; border-radius: 50%;
+    background: var(--blue); display: grid; place-items: center;
+    transition: background .15s, transform .15s;
+  }
+  .icon-btn:hover { background: var(--blue-deep); transform: scale(1.05); }
+  .icon-btn svg { width: 19px; height: 19px; stroke: #fff; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+    font-family: inherit; font-size: 15px; font-weight: 500;
+    padding: 12px 22px; border-radius: var(--radius-pill);
+    color: var(--ink); background: var(--card);
+    border: 1px solid var(--line);
+    box-shadow: 0 2px 8px -2px rgba(28,34,48,.08);
+    transition: all .18s;
+  }
+  .chip:hover { transform: translateY(-1px); box-shadow: 0 6px 16px -6px rgba(28,34,48,.16); }
+  .chip.active { background: var(--butter); border-color: transparent; font-weight: 600; box-shadow: 0 6px 18px -5px rgba(255,195,20,.55); }
+  .chip.more { background: transparent; border-style: dashed; box-shadow: none; color: var(--ink-soft); }
+  .chip svg { width: 17px; height: 17px; stroke: currentColor; opacity: .7; }
+
+  .search-demo {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--card); border: 1.5px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 10px 10px 10px 24px;
+    box-shadow: 0 2px 6px rgba(28,34,48,.04), 0 18px 44px -18px rgba(45,91,255,.16);
+    width: 100%;
+  }
+  .search-demo input { flex: 1; border: none; outline: none; background: none; font-family: inherit; font-size: 17px; padding: 12px 0; min-width: 0; }
+  .search-demo input::placeholder { color: var(--ink-faint); }
+
+  .wish-demo {
+    cursor: pointer; font-family: inherit; text-align: left;
+    padding: 18px 20px; border-radius: var(--radius-md);
+    font-size: 15px; line-height: 1.5; color: var(--ink);
+    background: var(--card); border: 1px solid var(--line);
+    display: flex; gap: 14px; align-items: flex-start;
+    transition: transform .18s, box-shadow .18s, border-color .18s;
+    max-width: 380px;
+  }
+  .wish-demo:hover { transform: translateY(-2px); border-color: transparent; box-shadow: 0 12px 28px -12px rgba(28,34,48,.18); }
+  .wish-demo .w-icon { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; background: var(--butter-soft); display: grid; place-items: center; }
+  .wish-demo .w-icon svg { width: 17px; height: 17px; stroke: var(--ink); opacity: .75; }
+  .wish-demo span.text { padding-top: 5px; }
+
+  /* rules table */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.5; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .rules { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+
+  .do-dont { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dd { border-radius: var(--radius-md); padding: 18px 20px; font-size: 14px; line-height: 1.6; border: 1px solid var(--line); background: var(--card); }
+  .dd .tag { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 8px; }
+  .dd.do .tag { color: #45753D; }
+  .dd.dont .tag { color: #B23A57; }
+  .dd ul { padding-left: 18px; }
+  .dd li { margin-bottom: 6px; }
+
+  @media (max-width: 640px) {
+    .spec { flex-direction: column; gap: 8px; }
+    .spec .props { width: auto; }
+    .do-dont { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>ShopLens style guide</h1>
+  <p>The reference for everything user-facing. One principle above all: the input is the product, everything else stays quiet.</p>
+</header>
+
+<!-- ================= COLOR ================= -->
+<section>
+  <h2>Color</h2>
+  <p class="note">The palette is warm paper, dark ink, one working color, and one personality color. Blue does the functional work. Butter yellow marks exactly one thing at a time: the current selection.</p>
+  <div class="swatches">
+    <div class="swatch"><div class="chip-color" style="background:#FAFAF7; border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">Paper</div><div class="hex mono">#FAFAF7</div><div class="use">Page background. Never pure white.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#FFFFFF; border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">Card</div><div class="hex mono">#FFFFFF</div><div class="use">Surfaces: cards, chips, search bar.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#1C2230"></div><div class="meta"><div class="name">Ink</div><div class="hex mono">#1C2230</div><div class="use">Primary text. Near-black with a cool cast.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#5B6372"></div><div class="meta"><div class="name">Ink soft</div><div class="hex mono">#5B6372</div><div class="use">Secondary text, sublines, nav links.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#949CAB"></div><div class="meta"><div class="name">Ink faint</div><div class="hex mono">#949CAB</div><div class="use">Helper text, placeholders, labels. Never for anything the user must read.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#2D5BFF"></div><div class="meta"><div class="name">Blue</div><div class="hex mono">#2D5BFF</div><div class="use">Primary actions, brand mark, focus rings. White text on top.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#1E45D6"></div><div class="meta"><div class="name">Blue deep</div><div class="hex mono">#1E45D6</div><div class="use">Hover and pressed states of Blue only.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#EDF1FF; border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">Blue tint</div><div class="hex mono">#EDF1FF</div><div class="use">Ghost button hover, subtle highlights.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#FFD84D"></div><div class="meta"><div class="name">Butter</div><div class="hex mono">#FFD84D</div><div class="use">Selected state only. Always with Ink text, never white.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#FFF3C2; border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">Butter soft</div><div class="hex mono">#FFF3C2</div><div class="use">Icon tiles, gentle accents.</div></div></div>
+    <div class="swatch"><div class="chip-color" style="background:#E8E8E2; border-bottom:1px solid var(--line)"></div><div class="meta"><div class="name">Line</div><div class="hex mono">#E8E8E2</div><div class="use">Hairline borders and dividers.</div></div></div>
+  </div>
+
+  <h3>Rules</h3>
+  <div class="do-dont">
+    <div class="dd do"><span class="tag">Do</span>
+      <ul>
+        <li>Use Blue for every primary action. One page, one working color.</li>
+        <li>Reserve Butter for the single active selection on screen.</li>
+        <li>Put Ink text on Butter. Contrast fails with white.</li>
+      </ul>
+    </div>
+    <div class="dd dont"><span class="tag">Do not</span>
+      <ul>
+        <li>Introduce per-category colors. Lenses are differentiated by icon and label, not hue.</li>
+        <li>Use Butter for buttons, links, or anything that navigates.</li>
+        <li>Use pure black or pure gray text anywhere.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= TYPE ================= -->
+<section>
+  <h2>Typography</h2>
+  <p class="note">Two families. Fraunces speaks, DM Sans works. Fraunces appears only in display sizes — the moment it shows up at body size, it stops feeling special.</p>
+
+  <div class="spec"><div class="sample t-display">What are you looking for?</div><div class="props">Display · Fraunces 600<br>48–58px · -0.02em · lh 1.08<br>Page headline only, one per page</div></div>
+  <div class="spec"><div class="sample t-h2">A section that needs a voice</div><div class="props">Heading · Fraunces 600<br>24–28px · -0.01em<br>Section titles on content pages</div></div>
+  <div class="spec"><div class="sample t-body-lg">Describe it in your words. We find real products that ship to you.</div><div class="props">Body large · DM Sans 400<br>17px · lh 1.55<br>Sublines, lead paragraphs</div></div>
+  <div class="spec"><div class="sample t-body">An anniversary gift for my partner who loves coffee and pottery, under ₹5,000</div><div class="props">Body · DM Sans 400–500<br>15px · lh 1.5<br>Cards, chips, controls, default text</div></div>
+  <div class="spec"><div class="sample t-caption">Gift Lens · tell us about them, we rank gifts by how well they fit</div><div class="props">Caption · DM Sans 400<br>13.5px · Ink faint<br>Helper text under controls</div></div>
+  <div class="spec"><div class="sample t-label">Try one</div><div class="props">Label · DM Sans 600<br>12.5px · +0.12em · uppercase<br>Section markers, eyebrows</div></div>
+</section>
+
+<!-- ================= COMPONENTS ================= -->
+<section>
+  <h2>Components</h2>
+
+  <h3>Buttons</h3>
+  <div class="demo">
+    <button class="btn-primary">Find products</button>
+    <button class="icon-btn" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></button>
+    <button class="btn-ghost">Add a photo</button>
+  </div>
+  <p class="note">Primary is Blue, pill-shaped, sentence case, verb-first. The circular icon button is reserved for submit inside the search bar. Ghost buttons are for secondary actions that live inside another component.</p>
+
+  <h3>Lens chips</h3>
+  <div class="demo">
+    <button class="chip active"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>Gifts</button>
+    <button class="chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.5 3-5 5.5-5 10a5 5 0 0 0 10 0c0-4.5-3.5-7-5-10z"/></svg>Skincare</button>
+    <button class="chip more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>More lenses</button>
+  </div>
+  <p class="note">Raised white pills with a 17px line icon at 1.9 stroke. Exactly one chip is active at a time and it is the only Butter object on screen. The dashed chip is the expander and never takes the active state.</p>
+
+  <h3>Search bar</h3>
+  <div class="demo stack">
+    <div class="search-demo">
+      <input type="text" placeholder="A retirement gift for my dad who loves fishing">
+      <button class="btn-ghost">Add a photo</button>
+      <button class="icon-btn" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></button>
+    </div>
+  </div>
+  <p class="note">The hero component. Largest radius on the page (28px), a soft blue-cast shadow, and a Blue border on focus. Placeholder text demonstrates real prompts. Nothing else on the page may have a stronger shadow.</p>
+
+  <h3>Prompt cards</h3>
+  <div class="demo">
+    <button class="wish-demo">
+      <span class="w-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></span>
+      <span class="text">An anniversary gift for my partner who loves coffee and pottery, under ₹5,000</span>
+    </button>
+  </div>
+  <p class="note">White card, hairline border, Butter-soft icon tile. Written in first person, always with a concrete constraint (budget, occasion, or preference). On hover the border disappears and the card lifts.</p>
+</section>
+
+<!-- ================= SHAPE, SPACE, MOTION ================= -->
+<section>
+  <h2>Shape, space, motion</h2>
+  <div class="rules">
+    <table>
+      <tr><th>Token</th><th>Value</th><th>Where</th></tr>
+      <tr><td>radius-lg</td><td class="mono">28px</td><td>Search bar only</td></tr>
+      <tr><td>radius-md</td><td class="mono">18px</td><td>Cards and surfaces</td></tr>
+      <tr><td>radius-pill</td><td class="mono">999px</td><td>Chips and buttons</td></tr>
+      <tr><td>Shadow, resting</td><td class="mono">0 2px 8px -2px rgba(28,34,48,.08)</td><td>Chips, raised controls</td></tr>
+      <tr><td>Shadow, hover</td><td class="mono">0 12px 28px -12px rgba(28,34,48,.18)</td><td>Cards on hover, with -2px translateY</td></tr>
+      <tr><td>Shadow, hero</td><td class="mono">0 18px 44px -18px rgba(45,91,255,.16)</td><td>Search bar only, blue-cast</td></tr>
+      <tr><td>Transitions</td><td class="mono">.15–.18s ease</td><td>All hover states. Respect prefers-reduced-motion</td></tr>
+      <tr><td>Section rhythm</td><td class="mono">~60px</td><td>Between major page blocks</td></tr>
+      <tr><td>Control gap</td><td class="mono">10–12px</td><td>Between chips, between cards</td></tr>
+    </table>
+  </div>
+  <p class="note" style="margin-top:14px">Motion budget: one ambient moment per page (the typing placeholder on the homepage) plus hover feedback. Nothing autoplays beyond that.</p>
+</section>
+
+<!-- ================= VOICE ================= -->
+<section>
+  <h2>Voice</h2>
+  <div class="do-dont">
+    <div class="dd do"><span class="tag">Do</span>
+      <ul>
+        <li>Write as the user speaks: "Get me ready for a beach wedding."</li>
+        <li>Say what you give and what you get: "show us a product, we find a version that fits you better."</li>
+        <li>Sentence case everywhere except uppercase section labels.</li>
+        <li>Plain names on chips (Gifts, Swaps, Travel); Lens names in captions (Gift Lens, Swap Lens).</li>
+      </ul>
+    </div>
+    <div class="dd dont"><span class="tag">Do not</span>
+      <ul>
+        <li>Use system language: catalog, API, query, GEO, deliverability.</li>
+        <li>Stack more than one helper line per control.</li>
+        <li>Promise outcomes in educational lenses. Routine and Fuel describe preferences, never treatment or health results.</li>
+        <li>Exceed two sentences for any helper text.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

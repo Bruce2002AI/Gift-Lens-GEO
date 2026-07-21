@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter } from "next/font/google";
+import { Fraunces, DM_Sans } from "next/font/google";
 import { NavBar } from "@/components/layout/NavBar";
 import { Footer } from "@/components/layout/Footer";
 import { Providers } from "@/components/auth/Providers";
@@ -11,8 +11,9 @@ const fraunces = Fraunces({
   display: "swap",
 });
 
-const inter = Inter({
-  variable: "--font-inter",
+// DM Sans "works" while Fraunces "speaks" — see the ShopLens style guide.
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
   display: "swap",
 });
@@ -28,7 +29,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${fraunces.variable} ${inter.variable} antialiased`}>
+      <body className={`${fraunces.variable} ${dmSans.variable} antialiased`}>
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-plum focus:px-4 focus:py-2 focus:text-white"
