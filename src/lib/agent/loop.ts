@@ -2,6 +2,7 @@ import "server-only";
 import { aiAvailable, structuredCompletion, visionAvailable } from "@/lib/ai/client";
 import { TraceCollector } from "@/lib/catalog/trace";
 import { isValidCurrencyCode, majorToMinor } from "@/lib/gift/currency";
+import { countryCode } from "@/lib/gift/countries";
 import { logger } from "@/lib/logger";
 import {
   applyFactPatches,
@@ -100,11 +101,13 @@ function applyConstraintPatch(
     c.budgetMinMinor = majorToMinor(patch.budgetMinMajor, c.currency);
   }
   if (patch.country) {
-    const raw = patch.country.trim();
-    const map: Record<string, string> = {
-      india: "IN", "united states": "US", usa: "US", "united kingdom": "GB", uk: "GB",
-    };
-    c.country = map[raw.toLowerCase()] ?? (raw.length === 2 ? raw.toUpperCase() : c.country);
+    // Resolve names, aliases, and ISO-2 codes against the shared country list;
+    // leave the existing value untouched when nothing matches.
+    c.country = countryCode(patch.country) ?? c.country;
+  }
+  if (patch.postalCode != null) {
+    const trimmed = patch.postalCode.trim();
+    c.postalCode = trimmed || null;
   }
   if (patch.deadline != null) c.deadline = patch.deadline;
   for (const term of patch.exclusionsAdd ?? []) {
@@ -370,7 +373,7 @@ function renderState(
   const c = ledger.constraints;
   lines.push(
     "",
-    `CONSTRAINTS: budget ${c.budgetMaxMinor != null ? `max ${c.budgetMaxMinor} minor units ${c.currency}` : "unstated"}${c.budgetMinMinor != null ? `, min ${c.budgetMinMinor}` : ""}; country ${c.country ?? "unstated"}; deadline ${c.deadline ?? "none"}; exclusions: ${c.exclusions.join(", ") || "none"}`,
+    `CONSTRAINTS: budget ${c.budgetMaxMinor != null ? `max ${c.budgetMaxMinor} minor units ${c.currency}` : "unstated"}${c.budgetMinMinor != null ? `, min ${c.budgetMinMinor}` : ""}; country ${c.country ?? "unstated"}; postal code ${c.postalCode ?? "unstated"}; deadline ${c.deadline ?? "none"}; exclusions: ${c.exclusions.join(", ") || "none"}`,
   );
 
   if (ledger.careFlags.length > 0) {

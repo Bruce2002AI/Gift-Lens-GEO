@@ -71,6 +71,8 @@ export interface LedgerConstraints {
   budgetMinMinor: number | null;
   currency: string;
   country: string | null;
+  /** Postal/PIN code for the ship-to address — sharpens delivery within a country. */
+  postalCode: string | null;
   /** Deadline/urgency is a first-class constraint — reasoned with, never promised against. */
   deadline: string | null;
   exclusions: string[];
@@ -244,6 +246,7 @@ export const ConstraintPatchSchema = z.object({
   budgetMinMajor: z.number().nullish(),
   currency: z.string().nullish(),
   country: z.string().nullish(),
+  postalCode: z.string().nullish(),
   deadline: z.string().nullish(),
   exclusionsAdd: z.array(z.string()).nullish(),
 });
