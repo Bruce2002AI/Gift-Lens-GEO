@@ -17,7 +17,7 @@ import { fieldCatalogForPrompt } from "@/lib/personalization/schema";
 import type { ProfileLens } from "@/lib/personalization/types";
 import { CHARTERS, SHARED_CONTRACT } from "./personas";
 import { careFlagDef, EDUCATIONAL_FRAMING, lintOutbound, sniffSupplementConsent } from "./safety";
-import { ensureBoardBreadth, runInstantSimilar, topUpBoard } from "./board";
+import { boardIdsFailingConstraints, ensureBoardBreadth, runInstantSimilar, topUpBoard } from "./board";
 import { productIdentityKey } from "./dedup";
 import {
   runGetProducts,
@@ -230,6 +230,35 @@ export function wantsMoreVariety(session: AgentSession): boolean {
   return explicit || (moreWord && optionNoun);
 }
 
+/**
+ * Fact keys that describe a shopping preference — a NEW one this turn means the
+ * picks should visibly change, so the loop forces a fresh search before it
+ * presents or asks (answering a question that changes nothing is the core
+ * complaint). Name/relationship/logistics keys are deliberately excluded.
+ */
+const SHOPPING_PREF_KEY =
+  /interest|hobb|likes?|loves?|enjoys?|favou?rite|passion|style|prefer|vibe|colou?r|dislike|hates?|avoid|occasion|theme|material|fabric|fit|size|brand|aesthetic|character|obsess/i;
+
+/**
+ * Allergies/hard avoidances stated in plain words, so a product list updates the
+ * instant the shopper says "she's allergic to nuts" — even before the model
+ * records it. Deliberately narrow (unambiguous allergy/intolerance phrasing) to
+ * avoid turning an ordinary sentence into a spurious exclusion.
+ */
+export function sniffExclusions(text: string): string[] {
+  const out: string[] = [];
+  const re =
+    /\b(?:allergic to|allergy to|allergies to|intolerant to|can'?t (?:eat|have|wear|use)|cannot (?:eat|have|wear|use))\s+([a-z][a-z\s,]{1,40})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    for (const piece of m[1].split(/,|\band\b/i)) {
+      const term = piece.trim().replace(/\b(?:please|thanks|thank you|too|also)\b/gi, "").trim();
+      if (term.length >= 2 && term.length <= 30 && !/^\s*$/.test(term)) out.push(term.toLowerCase());
+    }
+  }
+  return [...new Set(out)];
+}
+
 function renderState(
   session: AgentSession,
   observations: string[],
@@ -438,6 +467,32 @@ export async function runExpertTurn(
   // Set when a photo is genuinely analysed this turn — the model must then TELL
   // the shopper what it saw before it presents (the multimodal payoff).
   let imageAnalyzed = false;
+  // Set when the shopper changed the brief this turn (new preference, allergy,
+  // exclusion, budget, interest, or a "show me different" ask). The loop then
+  // refuses to end on a bare question and forces a fresh search + present so the
+  // products visibly update — a question that changes nothing is the complaint.
+  let briefChanged = false;
+
+  /**
+   * Pull now-disallowed products off the client's board the instant constraints
+   * tighten (allergy, exclusion, budget cut, care fence). The board is add-only,
+   * so without this a newly-forbidden item just sits there. Also drops them from
+   * the session's boarded sets so a compliant re-search can refill the gap.
+   */
+  const pruneBoard = (reason: string) => {
+    if (aborted?.()) return;
+    const failing = boardIdsFailingConstraints(session);
+    if (failing.length === 0) return;
+    for (const id of failing) {
+      session.boardedIds.delete(id);
+      const p = session.evidence.get(resolveEvidenceId(session, id))?.product;
+      if (p) session.boardedIdentities.delete(productIdentityKey(p));
+    }
+    emit({ type: "board_prune", removeProductIds: failing, reason });
+    observations.push(
+      `SYSTEM: ${failing.length} product(s) already on the board no longer fit (${reason}) and were REMOVED from the shopper's shelf live. Run a fresh search_catalog for compliant replacements and present an updated board — do not leave a gap.`,
+    );
+  };
 
   const pendingCare = () => session.ledger.careFlags.filter((f) => f.lastCaredTurn == null);
   const dischargeCare = () => {
@@ -609,7 +664,12 @@ export async function runExpertTurn(
     // Deterministic nets: care flags + consent + budget backstops. Model
     // additions union in — recall never depends on the model alone.
     const added = detectAndMergeCareFlags(session, input.message);
-    if (added.length > 0) emit({ type: "ledger", view: ledgerView(session.ledger) });
+    if (added.length > 0) {
+      emit({ type: "ledger", view: ledgerView(session.ledger) });
+      briefChanged = true;
+      // A care flag's scope fence may now ban products already on the board.
+      pruneBoard("a safety flag was raised this turn");
+    }
     const consentSentence = sniffSupplementConsent(input.message);
     if (consentSentence && recordConsent(session, "supplements", consentSentence)) {
       emit({ type: "ledger", view: ledgerView(session.ledger) });
@@ -621,7 +681,21 @@ export async function runExpertTurn(
         session.ledger.constraints.currency = currency;
         session.ledger.constraints.budgetMaxMinor = majorToMinor(sniffed.maxMajor, currency);
         emit({ type: "ledger", view: ledgerView(session.ledger) });
+        briefChanged = true;
       }
+    }
+    // Plain-language allergies/avoidances become hard exclusions immediately, so
+    // the shelf updates the moment they're said — even before the model records
+    // them. New terms trigger a live board prune + a forced re-search.
+    const sniffedExclusions = sniffExclusions(input.message);
+    const newExclusions = sniffedExclusions.filter(
+      (t) => !session.ledger.constraints.exclusions.includes(t),
+    );
+    if (newExclusions.length > 0) {
+      session.ledger.constraints.exclusions.push(...newExclusions);
+      emit({ type: "ledger", view: ledgerView(session.ledger) });
+      briefChanged = true;
+      pruneBoard(`avoiding ${newExclusions.join(", ")}`);
     }
   }
 
@@ -642,7 +716,8 @@ export async function runExpertTurn(
   let terminal: "ask" | "present" | "propose" | null = null;
   let consecutiveSays = 0;
   let lastSay = "";
-  let bareAskNudges = 0;
+  let askBlocks = 0;
+  let refreshNudges = 0;
   let boardNudges = 0;
   let compositionNudges = 0;
   let emptyPresentNudges = 0;
@@ -769,11 +844,20 @@ export async function runExpertTurn(
           );
           break;
         }
-        // Show-first: never interrogate while holding products you could show.
-        if (session.candidates.size > 0 && bareAskNudges < 1) {
-          bareAskNudges += 1;
+        // Never end on a bare question when there are products to show OR the
+        // brief just changed — the shopper wants the SHELF to react, not another
+        // question with nothing new. Force a present (the question rides in
+        // followUp) and, when the brief changed, a fresh search first.
+        const needsFresh =
+          briefChanged ||
+          wantsMoreVariety(session) ||
+          (session.searchHits.size > 0 && unsearchedInterestTerms(session).length > 0);
+        if ((session.candidates.size > 0 || needsFresh) && askBlocks < 2) {
+          askBlocks += 1;
           observations.push(
-            "SYSTEM: you already have candidate products. Don't ask without showing — call `present` now and put this question in presentation.followUp so the shopper sees progress while they answer.",
+            needsFresh
+              ? "SYSTEM: the shopper just changed what they want — a bare question is the wrong move. FIRST run a fresh search_catalog reflecting the change, THEN `present` the updated products with your question in presentation.followUp. A question that doesn't update the shelf is exactly what frustrates them."
+              : "SYSTEM: you're holding products you could show. Don't ask a bare question — call `present` now with your question in presentation.followUp so the shelf and the question arrive together.",
           );
           break;
         }
@@ -856,8 +940,23 @@ export async function runExpertTurn(
         invalidStreak = 0;
         if (action.facts && action.facts.length > 0) {
           applyFactPatches(session, action.facts);
+          // A newly-stated shopping PREFERENCE means the picks should change —
+          // flag it so the loop searches fresh instead of re-showing the set.
+          if (action.facts.some((f) => SHOPPING_PREF_KEY.test(f.key))) briefChanged = true;
         }
-        if (action.constraints) applyConstraintPatch(session, action.constraints);
+        if (action.constraints) {
+          applyConstraintPatch(session, action.constraints);
+          const tightened =
+            (action.constraints.exclusionsAdd?.length ?? 0) > 0 ||
+            action.constraints.budgetMaxMajor != null ||
+            action.constraints.budgetMinMajor != null ||
+            action.constraints.country != null;
+          if (tightened) {
+            briefChanged = true;
+            // Newly-excluded/re-budgeted items must leave the shelf immediately.
+            pruneBoard("your updated requirements");
+          }
+        }
         if (action.consent) {
           const ok = recordConsent(session, action.consent.category, action.consent.quote);
           observations.push(
@@ -883,6 +982,9 @@ export async function runExpertTurn(
                 lastCaredTurn: null,
               },
             ]);
+            briefChanged = true;
+            // A care flag's scope fence may ban items already on the shelf.
+            pruneBoard("a safety flag was raised");
           }
         }
         emit({ type: "ledger", view: ledgerView(session.ledger) });
@@ -927,6 +1029,16 @@ export async function runExpertTurn(
           narrateNudges += 1;
           observations.push(
             `SYSTEM: you analysed their photo but are about to present without ever telling them what you saw. Your next action must be a \`say\` that describes the photo warmly and specifically first — then present.`,
+          );
+          break;
+        }
+        // The brief changed this turn but the model never searched with it —
+        // presenting now just re-shows the old shelf, the exact "you asked but
+        // nothing updated" failure. Force ONE fresh search reflecting the change.
+        if (briefChanged && searchActions === 0 && refreshNudges < 1) {
+          refreshNudges += 1;
+          observations.push(
+            "SYSTEM: the shopper gave you new direction this turn and you're about to present WITHOUT searching for it — that just re-shows the same shelf. Run ONE fresh search_catalog reflecting what they just said, THEN present the updated products.",
           );
           break;
         }

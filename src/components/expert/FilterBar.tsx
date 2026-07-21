@@ -47,7 +47,13 @@ function EditableChip({
   // refine turn round-trips. Cleared as soon as the incoming `value` changes,
   // so the agent's canonical (e.g. formatted) value takes over.
   const [pending, setPending] = useState<string | null>(null);
-  useEffect(() => setPending(null), [value]);
+  // Clear the optimistic override when the incoming value changes — reconciled
+  // during render (not in an effect) so it can't trigger a cascading re-render.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setPending(null);
+  }
   const shown = pending ?? value;
 
   const error = editing && validate ? validate(draft) : null;
@@ -160,9 +166,12 @@ function CountrySelectChip({
   const [pending, setPending] = useState<string | null>(null);
   // The freshest pick wins for display; once the ledger confirms it, drop the
   // local override so the ledger stays authoritative for later corrections.
-  useEffect(() => {
+  // Reconciled during render (not in an effect) to avoid cascading renders.
+  const [prevCode, setPrevCode] = useState(code);
+  if (code !== prevCode) {
+    setPrevCode(code);
     if (pending && code === pending) setPending(null);
-  }, [code, pending]);
+  }
   const effective = pending ?? code;
   const label = countryName(effective);
   return (

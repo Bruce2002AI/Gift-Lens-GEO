@@ -821,6 +821,26 @@ export default function ExpertShopPage() {
         case "notice":
           pushItem({ kind: "notice", tone: event.tone, text: event.text });
           break;
+        case "board_prune": {
+          // The board is otherwise add-only; a tightened constraint (allergy,
+          // exclusion, budget cut) removes now-disallowed items live.
+          const remove = new Set(event.removeProductIds);
+          if (remove.size === 0) break;
+          const strip = (cats: VerifiedBoardCategory[]) =>
+            cats
+              .map((cat) => ({ ...cat, items: cat.items.filter((it) => !remove.has(it.productId)) }))
+              .filter((cat) => cat.items.length > 0);
+          setBoard((prev) => strip(prev));
+          lastPresentBoardRef.current = strip(lastPresentBoardRef.current);
+          pushItem({
+            kind: "notice",
+            tone: "info",
+            text: `Removed ${remove.size} item${remove.size === 1 ? "" : "s"} that no longer fit${
+              event.reason ? ` — ${event.reason}` : ""
+            }.`,
+          });
+          break;
+        }
         case "error":
           pushItem({ kind: "error", text: event.message });
           break;

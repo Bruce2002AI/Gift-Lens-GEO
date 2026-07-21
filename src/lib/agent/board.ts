@@ -1,9 +1,12 @@
 import "server-only";
 import type { TraceCollector } from "@/lib/catalog/trace";
 import type { NormalizedProduct } from "@/lib/catalog/types";
+import { checkHardConstraints } from "@/lib/gift/constraints";
 import { formatMinor } from "@/lib/gift/currency";
+import { phraseInText } from "@/lib/utils";
 import { productIdentityKey } from "./dedup";
-import { ledgerToBaseIntent } from "./ledger";
+import { hasConsent, ledgerToBaseIntent, scopeFenceTerms } from "./ledger";
+import { isSupplementCategory } from "./safety";
 import {
   resolveProductId,
   runGetProduct,
@@ -503,4 +506,37 @@ function addCatchAll(
   const cat: VerifiedBoardCategory = { name, items: [] };
   presentation.board.push(cat);
   return cat;
+}
+
+/**
+ * Which already-boarded products would NO LONGER be admitted under the current
+ * constraints — so the loop can pull them off the client's board the instant the
+ * shopper tightens the brief (a new allergy, exclusion, budget cut, or a care
+ * flag whose scope fence now bans them). Same admission tests the board itself
+ * uses: hard constraints (budget/exclusions/ships-to), the care scope fence, and
+ * the supplement opt-in gate. Products with no evidence are left alone — we only
+ * yank something we can actually prove violates.
+ */
+export function boardIdsFailingConstraints(session: AgentSession): string[] {
+  const intent = ledgerToBaseIntent(session.ledger);
+  const fences = scopeFenceTerms(session.ledger);
+  const failing: string[] = [];
+  for (const id of session.boardedIds) {
+    const product = session.evidence.get(resolveEvidenceId(session, id))?.product;
+    if (!product) continue;
+    const text =
+      `${product.title} ${product.description} ${product.categories.map((c) => c.value).join(" ")}`.toLowerCase();
+    const fenced = fences.some((t) => phraseInText(text, t, { stemPlurals: true }));
+    const screenedCap = session.budgetScreenedCap.get(product.id);
+    const passes = checkHardConstraints(product, intent, {
+      catalogBudgetFilterApplied:
+        screenedCap != null &&
+        session.ledger.constraints.budgetMaxMinor != null &&
+        screenedCap <= session.ledger.constraints.budgetMaxMinor,
+    }).pass;
+    const supplementBlocked =
+      isSupplementCategory(text) && !hasConsent(session.ledger, "supplements");
+    if (fenced || !passes || supplementBlocked) failing.push(product.id);
+  }
+  return failing;
 }

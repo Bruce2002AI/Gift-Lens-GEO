@@ -616,6 +616,13 @@ export type ExpertEvent =
       }>;
     }
   | { type: "notice"; tone: "mock" | "degraded" | "info"; text: string }
+  /**
+   * Remove products from the client's accumulated board IMMEDIATELY — the board
+   * is otherwise add-only, so a newly-stated allergy/exclusion/budget cut has no
+   * way to pull now-disallowed items off the shelf. The server recomputes which
+   * already-shown products violate the tightened constraints and lists them.
+   */
+  | { type: "board_prune"; removeProductIds: string[]; reason: string }
   | { type: "done"; terminal: "ask" | "present" | "propose" | "degraded" | "error" }
   | { type: "error"; message: string };
 
