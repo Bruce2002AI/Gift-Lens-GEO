@@ -24,6 +24,7 @@ import {
   Search,
   Send,
   StickyNote,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -488,6 +489,7 @@ export default function ExpertShopPage() {
     entries: recentHistory,
     upsert,
     getSnapshot,
+    clear: clearHistory,
     pendingRestoreId,
     consumeRestore,
     newSearchNonce,
@@ -1574,6 +1576,28 @@ export default function ExpertShopPage() {
                     <span className="truncate">{entry.title}</span>
                   </button>
                 ))}
+              </div>
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        "Clear all saved searches and everything the assistant remembers about you (profiles, preferences, past chats)? This can't be undone.",
+                      )
+                    )
+                      return;
+                    clearHistory(); // saved searches: DB + localStorage
+                    // Remembered profile + live sessions (signed-in only; a 401
+                    // for guests is harmless — nothing stored beyond the history).
+                    await fetch("/api/personalization/reset", { method: "POST" }).catch(() => {});
+                    resetConversation(); // blank slate under a fresh id
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium text-ink-faint transition-colors hover:bg-danger/10 hover:text-danger"
+                >
+                  <Trash2 size={13} aria-hidden />
+                  Clear all history &amp; memory
+                </button>
               </div>
             </div>
           )}

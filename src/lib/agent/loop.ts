@@ -231,29 +231,161 @@ export function wantsMoreVariety(session: AgentSession): boolean {
 }
 
 /**
- * Fact keys that describe a shopping preference — a NEW one this turn means the
- * picks should visibly change, so the loop forces a fresh search before it
- * presents or asks (answering a question that changes nothing is the core
- * complaint). Name/relationship/logistics keys are deliberately excluded.
+ * Fact-key SEGMENTS that describe a shopping preference — a NEW one this turn
+ * means the picks should visibly change, so the loop forces a fresh search
+ * before it presents or asks (answering a question that changes nothing is the
+ * core complaint). Anchored per dotted segment (not a raw substring) so a key
+ * like "recipient.brandenburg" does not match "brand"; name/relationship/
+ * logistics keys are deliberately excluded.
  */
-const SHOPPING_PREF_KEY =
-  /interest|hobb|likes?|loves?|enjoys?|favou?rite|passion|style|prefer|vibe|colou?r|dislike|hates?|avoid|occasion|theme|material|fabric|fit|size|brand|aesthetic|character|obsess/i;
+const SHOPPING_PREF_SEGMENT =
+  /^(?:interests?|hobb(?:y|ies)|likes?|loves?|enjoys?|favou?rites?|passions?|style|prefer(?:ence)?s?|vibe|colou?rs?|dislikes?|hates?|avoid|occasion|theme|materials?|fabric|fit|sizes?|brands?|aesthetic|characters?|obsession)$/i;
+
+/** True when a fact key's segments name a shopping preference (see above). */
+function isShoppingPrefKey(key: string): boolean {
+  return key.split(/[.\s_-]+/).some((seg) => SHOPPING_PREF_SEGMENT.test(seg));
+}
 
 /**
- * Allergies/hard avoidances stated in plain words, so a product list updates the
- * instant the shopper says "she's allergic to nuts" — even before the model
- * records it. Deliberately narrow (unambiguous allergy/intolerance phrasing) to
- * avoid turning an ordinary sentence into a spurious exclusion.
+ * Auxiliary/filler words that must NEVER become a hard exclusion — a stray "can"
+ * (leaked from "can't") whole-word-matches half the catalog and would silently
+ * gut the board. Everything captured is filtered against this set.
  */
+const EXCLUSION_STOPWORDS = new Set([
+  "can", "cant", "cannot", "could", "would", "will", "wont", "dont", "do", "does", "did",
+  "have", "has", "had", "eat", "eating", "wear", "wearing", "use", "using", "the", "a", "an",
+  "any", "some", "please", "thanks", "thank", "you", "them", "it", "its", "that", "this", "too",
+  "also", "and", "or", "but", "she", "he", "they", "i", "we", "my", "me", "her", "him", "his",
+  "their", "our", "us", "stuff", "thing", "things", "anything", "everything", "nothing", "food",
+  "much", "more", "less", "really", "very", "just", "again", "now",
+]);
+
+/** Clean one captured allergen phrase to a hard-exclusion term (1-3 words), or null. */
+function cleanExclusionTerm(raw: string): string | null {
+  const words = raw
+    .toLowerCase()
+    .replace(/[^a-z\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 0 && !EXCLUSION_STOPWORDS.has(w));
+  if (words.length === 0 || words.length > 3) return null;
+  const term = words.join(" ").trim();
+  return term.length >= 2 && term.length <= 30 ? term : null;
+}
+
+/**
+ * Allergies/hard avoidances stated in plain words, so the product list updates
+ * the instant the shopper says "she's allergic to nuts" — even before the model
+ * records it. Deliberately careful: the "to X" capture is TEMPERED so it stops
+ * at the next contraction/conjunction/punctuation ("allergic to nuts and can't
+ * eat dairy" → nuts + dairy, never a stray "can"), lists split on and/or/comma/
+ * slash, noun-first and "X-free" phrasings are recognised, and every term is
+ * scrubbed of stop-words so an ordinary sentence can't poison the exclusions.
+ */
+/**
+ * A DIRECT, literal request to see a specific kind of product — "show me Ben 10
+ * products only", "just sarees", "find red dresses". This is an instruction, not
+ * a hint to reinterpret: the loop runs EXACTLY this search in code so the model
+ * can't skip it or substitute its own "more sophisticated" take (the failure
+ * where "Ben 10" became "industrial gadget aesthetics" and desk organizers).
+ * `only` (also "instead"/"nothing but") means REPLACE the shelf, not add to it.
+ */
+const DIRECT_TRIGGER =
+  /\b(?:show me|show us|find me|find us|find|get me|search for|look for|i want|i'd like|i would like|can you (?:find|show|get|pull up)|gimme|give me|pull up)\s+(.+)/i;
+
+/**
+ * Does the message mean "REPLACE the shelf with this", not "add this"? Only
+ * genuine exclusivity qualifiers count — the quantifier/idiom uses of "only"/
+ * "just" ("budget is only 2000", "can only wear wool", "the only one", "just
+ * checking") must NOT wipe a board the shopper asked to add to.
+ */
+function wantsReplace(text: string): boolean {
+  const t = ` ${text.toLowerCase()} `;
+  if (/\b(?:instead|nothing but)\b/.test(t)) return true;
+  const cleaned = t
+    .replace(/\b(?:can|the|not|if)\s+only\b/g, " ")
+    .replace(/\bonly\s+(?:[\d,]+|a few|a couple|one|two|three|when|if|because|after|before)\b/g, " ")
+    .replace(/\bjust\s+(?:show|find|get|give|see|tell|want|wanted|need|browsing|looking|checking|a moment|curious)\b/g, " ");
+  return /\bonly\b|\bjust\b/.test(cleaned);
+}
+
+export function sniffDirectRequest(text: string): { phrase: string; only: boolean } | null {
+  const m = text.match(DIRECT_TRIGGER);
+  if (!m) return null;
+  const phrase = m[1]
+    .toLowerCase()
+    // Cut off trailing clauses so the topic doesn't swallow the budget/relative
+    // clause ("sarees, budget is 3000" → "sarees"; "dress that she can wear" →
+    // "dress"). Budget is sniffed separately, so dropping it here loses nothing.
+    .replace(/[,;].*$/, " ")
+    .replace(
+      /\b(?:budget|under|below|within|max|around|about|approx|she|he|they|who|which|that|when|where)\b.*$/i,
+      " ",
+    )
+    .replace(/\b(?:only|just|instead|nothing but|please|now|too|as well|also)\b/gi, " ")
+    // Strip RECIPIENT phrasings only — never a bare "for <word>", which would
+    // delete a product qualifier ("shoes for running", "shirt for work").
+    .replace(/\bfor (?:him|her|them|myself|us|me|my [a-z]+)\b/gi, " ")
+    .replace(/\b(?:related|themed|inspired|styled|type of|kind of|sort of|based)\b/gi, " ")
+    .replace(
+      /\b(?:products?|items?|options?|stuff|things?|gifts?|ideas?|picks?|suggestions?|merch(?:andise)?|something)\b/gi,
+      " ",
+    )
+    .replace(/[^\w\s'-]/g, " ")
+    .replace(/^(?:a|an|the|some|any)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!phrase) return null;
+  // Reject goal/emotion clauses, not product noun phrases ("to lose 10 kg",
+  // "her to feel special", "you can help") — a literal catalog search of those
+  // is nonsense and the "present exactly this" directive would fight the charter.
+  if (/^(?:to|that|if|when|how|why|really|so|maybe)\b/i.test(phrase)) return null;
+  if (/^(?:she|he|her|him|them|they|it|you|us|me|my|his|their)\b/i.test(phrase)) return null;
+  // A "more/other/different …" opener is a VARIETY ask (handled by
+  // wantsMoreVariety), not a literal topic — don't manufacture a garbage search.
+  if (/^(?:more|other|another|different|additional|extra|else)\b/i.test(phrase)) return null;
+  const words = phrase.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 6) return null;
+  const FILLER = /^(?:more|other|another|different|else|anything|cheaper|expensive|better|new|fresh|a|an|the|some|any|good|nice|great|best|one|ones)$/i;
+  if (words.every((w) => FILLER.test(w))) return null;
+  return { phrase, only: wantsReplace(text) };
+}
+
+/** Has the session actually ATTEMPTED to search this phrase (even if it found nothing)? */
+export function topicSearched(session: AgentSession, phrase: string): boolean {
+  const tokens = new Set<string>();
+  for (const q of session.ledger.searchQueries) {
+    for (const w of q.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 2) tokens.add(w);
+  }
+  const words = phrase.toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+  const covered = (w: string) =>
+    tokens.has(w) ||
+    [...tokens].some((h) => h.length >= 4 && (h.startsWith(w) || (w.length >= 4 && w.startsWith(h))));
+  return words.length > 0 && words.every(covered);
+}
+
 export function sniffExclusions(text: string): string[] {
   const out: string[] = [];
-  const re =
-    /\b(?:allergic to|allergy to|allergies to|intolerant to|can'?t (?:eat|have|wear|use)|cannot (?:eat|have|wear|use))\s+([a-z][a-z\s,]{1,40})/gi;
+  const addList = (raw: string) => {
+    for (const piece of raw.split(/,|\band\b|\bor\b|\/|&/i)) {
+      const term = cleanExclusionTerm(piece);
+      if (term) out.push(term);
+    }
+  };
+  const toRe =
+    /\b(?:allergic to|allergy to|allergies to|intolerant to|can'?t (?:eat|have|wear|use)|cannot (?:eat|have|wear|use))\s+((?:(?!\bcan'?t\b|\bcannot\b|\bdon'?t\b|\bwon'?t\b|\bbut\b|[.;!?]).){2,40})/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    for (const piece of m[1].split(/,|\band\b/i)) {
-      const term = piece.trim().replace(/\b(?:please|thanks|thank you|too|also)\b/gi, "").trim();
-      if (term.length >= 2 && term.length <= 30 && !/^\s*$/.test(term)) out.push(term.toLowerCase());
+  while ((m = toRe.exec(text)) !== null) addList(m[1]);
+  // Noun-first phrasings people actually use: "nut allergy", "lactose
+  // intolerant", "gluten-free". Each captures a single clean allergen word.
+  for (const re of [
+    /\b([a-z][a-z-]{2,20})\s+allerg(?:y|ies)\b/gi,
+    /\b([a-z][a-z-]{2,20})\s+intoleran(?:t|ce)\b/gi,
+    /\b([a-z][a-z-]{2,20})-free\b/gi,
+  ]) {
+    let n: RegExpExecArray | null;
+    while ((n = re.exec(text)) !== null) {
+      const term = cleanExclusionTerm(n[1]);
+      if (term) out.push(term);
     }
   }
   return [...new Set(out)];
@@ -326,8 +458,13 @@ function renderState(
   // interest directive only applies once some searching has happened — before
   // that, the turn-1 "open with counsel, then search" doctrine already leads to
   // the right searches and must not be preempted.
-  const unsearched = session.searchHits.size > 0 ? unsearchedInterestTerms(session) : [];
-  const variety = wantsMoreVariety(session);
+  // Only push "you MUST search" while there is search budget left to do it —
+  // otherwise the imperative contradicts the exhausted-budget refusal and an
+  // over-obedient model burns its remaining actions re-issuing dead searches.
+  const canSearch = budgets.searchesLeft > 0;
+  const unsearched =
+    canSearch && session.searchHits.size > 0 ? unsearchedInterestTerms(session) : [];
+  const variety = canSearch && wantsMoreVariety(session);
   if (unsearched.length > 0) {
     lines.push(
       "",
@@ -472,6 +609,10 @@ export async function runExpertTurn(
   // refuses to end on a bare question and forces a fresh search + present so the
   // products visibly update — a question that changes nothing is the complaint.
   let briefChanged = false;
+  // True once a catalog search has run this turn — by a model action OR a
+  // code-driven one (direct-request auto-search, vision searches). The present
+  // nudge keys on this, not searchActions, so a code search still counts.
+  let searchedThisTurn = false;
 
   /**
    * Pull now-disallowed products off the client's board the instant constraints
@@ -493,6 +634,29 @@ export async function runExpertTurn(
       `SYSTEM: ${failing.length} product(s) already on the board no longer fit (${reason}) and were REMOVED from the shopper's shelf live. Run a fresh search_catalog for compliant replacements and present an updated board — do not leave a gap.`,
     );
   };
+
+  /**
+   * "show me X ONLY / instead" is a REPLACE, not an add: clear the accumulated
+   * shelf and the stale search context so the new topic can't be diluted by the
+   * old aisles when the board refills. Keeps the recipient profile/constraints.
+   */
+  const resetBoardForTopic = (reason: string) => {
+    if (aborted?.()) return;
+    if (session.boardedIds.size > 0) {
+      emit({ type: "board_prune", removeProductIds: [...session.boardedIds], reason });
+    }
+    session.candidates.clear();
+    session.searchHits.clear();
+    session.boardedIds.clear();
+    session.boardedIdentities.clear();
+    session.budgetScreenedCap.clear();
+    // Also drop the old VERIFIED EVIDENCE — otherwise renderState still offers
+    // those off-topic products as presentable ("you may only present these").
+    session.evidence.clear();
+  };
+  // The literal topic the shopper directly asked for this turn (if any) — the
+  // present handler refuses to ship until it has actually been searched.
+  let directTopic: string | null = null;
 
   const pendingCare = () => session.ledger.careFlags.filter((f) => f.lastCaredTurn == null);
   const dischargeCare = () => {
@@ -560,7 +724,10 @@ export async function runExpertTurn(
             `SYSTEM: you LOOKED at the uploaded photo. ${describeOutfitRead(read)}\nDescribe what you saw in your own words. Material impressions are photo guesses — never state them as listing facts.`,
           );
           const visionResults = await runVisionSearches(session, read, trace, emit);
-          if (visionResults) observations.push(visionResults);
+          if (visionResults) {
+            observations.push(visionResults);
+            searchedThisTurn = true;
+          }
         } else {
           observations.push(
             "SYSTEM: the image could not be analysed. Say so honestly; you may still use catalog visual similarity (useUploadedImage:true) or ask them to describe the look.",
@@ -603,6 +770,7 @@ export async function runExpertTurn(
             .slice(0, 4);
           if (phrases.length > 0) {
             const out = await runSearches(session, phrases.map((query) => ({ query })), trace, emit, 4);
+            searchedThisTurn = true;
             observations.push(
               `${out}\n\nSYSTEM: those searches came from what you saw in the photo — work from these candidates.`,
             );
@@ -653,6 +821,12 @@ export async function runExpertTurn(
     } else {
       observations.push(`SYSTEM: ${applyOp(session, input.op)}`);
       emit({ type: "ledger", view: ledgerView(session.ledger) });
+      if (input.op.kind === "revoke_consent") {
+        // Withdrawing consent (e.g. supplements) disallows those products now —
+        // pull them off the shelf and re-shop, same as a new exclusion.
+        briefChanged = true;
+        pruneBoard("consent was withdrawn");
+      }
     }
   }
 
@@ -697,6 +871,26 @@ export async function runExpertTurn(
       briefChanged = true;
       pruneBoard(`avoiding ${newExclusions.join(", ")}`);
     }
+
+    // A DIRECT, literal request ("show me Ben 10 products only") is an order, not
+    // a hint to reinterpret. Run EXACTLY that search in code so the model can't
+    // skip it or substitute its own taste; "only" replaces the shelf entirely.
+    const direct = sniffDirectRequest(input.message);
+    if (direct) {
+      briefChanged = true;
+      directTopic = direct.phrase;
+      if (direct.only) resetBoardForTopic(`focusing on ${direct.phrase}`);
+      if (direct.only || !topicSearched(session, direct.phrase)) {
+        const specs = [{ query: direct.phrase }];
+        if (session.lens === "gift") specs.push({ query: `${direct.phrase} gift` });
+        const out = await runSearches(session, specs, trace, emit);
+        if (aborted?.()) return;
+        searchedThisTurn = true;
+        observations.push(
+          `${out}\n\nSYSTEM: the shopper asked LITERALLY for "${direct.phrase}"${direct.only ? ' and said "only" (the previous items were cleared)' : ""}. These are the real catalog results for EXACTLY that. Present THESE. Do NOT reinterpret "${direct.phrase}" as some other aesthetic, do NOT substitute unrelated items, and do NOT add "assumptions" that override the request. If the results are thin or empty, say so plainly and offer the closest real thing as a clearly-labelled alternative — never quietly show something else and imply it's what they asked for.`,
+        );
+      }
+    }
   }
 
   if (!aiAvailable()) {
@@ -718,6 +912,7 @@ export async function runExpertTurn(
   let lastSay = "";
   let askBlocks = 0;
   let refreshNudges = 0;
+  let directNudges = 0;
   let boardNudges = 0;
   let compositionNudges = 0;
   let emptyPresentNudges = 0;
@@ -848,10 +1043,12 @@ export async function runExpertTurn(
         // brief just changed — the shopper wants the SHELF to react, not another
         // question with nothing new. Force a present (the question rides in
         // followUp) and, when the brief changed, a fresh search first.
+        const canStillSearch = searchActions < MAX_SEARCH_ACTIONS;
         const needsFresh =
-          briefChanged ||
-          wantsMoreVariety(session) ||
-          (session.searchHits.size > 0 && unsearchedInterestTerms(session).length > 0);
+          canStillSearch &&
+          (briefChanged ||
+            wantsMoreVariety(session) ||
+            (session.searchHits.size > 0 && unsearchedInterestTerms(session).length > 0));
         if ((session.candidates.size > 0 || needsFresh) && askBlocks < 2) {
           askBlocks += 1;
           observations.push(
@@ -897,11 +1094,16 @@ export async function runExpertTurn(
           break;
         }
         if (searchActions >= MAX_SEARCH_ACTIONS) {
-          observations.push("SYSTEM: search budget exhausted this turn — work with your candidates or present.");
+          // Count this as a wasted step: an over-obedient model that keeps
+          // re-issuing dead searches after the budget is spent trips the
+          // invalid-streak fast-bail instead of burning every action to a degrade.
+          invalidStreak += 1;
+          observations.push("SYSTEM: search budget exhausted this turn — STOP searching. Work with your candidates or present now.");
           break;
         }
         invalidStreak = 0;
         searchActions += 1;
+        searchedThisTurn = true;
         observations.push(await runSearches(session, specs, trace, emit));
         break;
       }
@@ -942,7 +1144,7 @@ export async function runExpertTurn(
           applyFactPatches(session, action.facts);
           // A newly-stated shopping PREFERENCE means the picks should change —
           // flag it so the loop searches fresh instead of re-showing the set.
-          if (action.facts.some((f) => SHOPPING_PREF_KEY.test(f.key))) briefChanged = true;
+          if (action.facts.some((f) => isShoppingPrefKey(f.key))) briefChanged = true;
         }
         if (action.constraints) {
           applyConstraintPatch(session, action.constraints);
@@ -1035,10 +1237,19 @@ export async function runExpertTurn(
         // The brief changed this turn but the model never searched with it —
         // presenting now just re-shows the old shelf, the exact "you asked but
         // nothing updated" failure. Force ONE fresh search reflecting the change.
-        if (briefChanged && searchActions === 0 && refreshNudges < 1) {
+        if (briefChanged && !searchedThisTurn && refreshNudges < 1) {
           refreshNudges += 1;
           observations.push(
             "SYSTEM: the shopper gave you new direction this turn and you're about to present WITHOUT searching for it — that just re-shows the same shelf. Run ONE fresh search_catalog reflecting what they just said, THEN present the updated products.",
+          );
+          break;
+        }
+        // Backstop: a literal request must actually be searched before you show
+        // anything — never reframe it or present unrelated items instead.
+        if (directTopic && !topicSearched(session, directTopic) && directNudges < 2) {
+          directNudges += 1;
+          observations.push(
+            `SYSTEM: the shopper asked LITERALLY for "${directTopic}" and it still hasn't been searched — do NOT present other items or reinterpret the request. Run search_catalog for "${directTopic}" (and "${directTopic} gift/merchandise") now, then show those exact products, or say plainly the catalog has none.`,
           );
           break;
         }

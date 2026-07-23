@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { boardIdsFailingConstraints } from "@/lib/agent/board";
-import { newSession } from "@/lib/agent/ledger";
+import { ledgerToBaseIntent, newSession } from "@/lib/agent/ledger";
 import { sniffExclusions } from "@/lib/agent/loop";
+import { notarizeBoardItem } from "@/lib/agent/truth";
 import type { AgentSession, CareFlag } from "@/lib/agent/types";
 import type { NormalizedProduct } from "@/lib/catalog/types";
 
@@ -110,6 +111,23 @@ describe("boardIdsFailingConstraints — what to pull off the shelf when the bri
     s.ledger.constraints.exclusions.push("chocolate");
     expect(boardIdsFailingConstraints(s)).toEqual([]);
   });
+
+  it("notarizeBoardItem refuses a product caught by a care scope fence (no re-admit after prune)", () => {
+    const retinol = product("p1", "Retinol Night Serum");
+    const s = sessionWithBoard([retinol]);
+    s.ledger.careFlags.push({
+      kind: "pregnancy",
+      label: "pregnancy",
+      matchedText: "pregnant",
+      turn: 2,
+      scopeFence: ["retinol"],
+      lastCaredTurn: null,
+    });
+    const intent = ledgerToBaseIntent(s.ledger);
+    expect(
+      notarizeBoardItem(s, { productId: "p1", insight: "a pick", trusted: true }, intent),
+    ).toBeNull();
+  });
 });
 
 describe("sniffExclusions — plain-language allergies become hard exclusions", () => {
@@ -119,9 +137,28 @@ describe("sniffExclusions — plain-language allergies become hard exclusions", 
     expect(sniffExclusions("he is intolerant to lactose, please")).toEqual(["lactose"]);
   });
 
+  it("handles 'or' lists and multiple clauses without leaking a stray 'can'", () => {
+    // The regression the review caught: "and can't eat X" must not yield "can",
+    // and the second allergen must still be captured.
+    expect(sniffExclusions("she's allergic to nuts and can't eat dairy")).toEqual(["nuts", "dairy"]);
+    expect(sniffExclusions("allergic to nuts or shellfish")).toEqual(["nuts", "shellfish"]);
+    expect(sniffExclusions("allergic to nuts, dairy and eggs")).toEqual(["nuts", "dairy", "eggs"]);
+    expect(sniffExclusions("I can't have chocolate")).toEqual(["chocolate"]);
+  });
+
+  it("recognises noun-first and X-free phrasings", () => {
+    expect(sniffExclusions("she has a nut allergy")).toEqual(["nut"]);
+    expect(sniffExclusions("he is lactose intolerant")).toEqual(["lactose"]);
+    expect(sniffExclusions("gluten-free please")).toEqual(["gluten"]);
+  });
+
   it("stays silent on ordinary sentences", () => {
     expect(sniffExclusions("something under 3000 for my sister")).toEqual([]);
     expect(sniffExclusions("she loves gardening and cricket")).toEqual([]);
     expect(sniffExclusions("no more than 5000 please")).toEqual([]);
+    // "can't" not followed by eat/have/wear/use must not fire.
+    expect(sniffExclusions("she can't wait to open it")).toEqual([]);
+    // The poisoning case: the word "can" must never become an exclusion.
+    expect(sniffExclusions("she's allergic to nuts and can't eat dairy")).not.toContain("can");
   });
 });

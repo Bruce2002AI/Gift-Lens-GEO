@@ -1,8 +1,9 @@
 import type { NormalizedProduct, NormalizedVariant } from "@/lib/catalog/types";
 import { checkHardConstraints, logisticsMessage } from "@/lib/gift/constraints";
 import { formatMinor } from "@/lib/gift/currency";
+import { phraseInText } from "@/lib/utils";
 import { productIdentityKey } from "./dedup";
-import { hasConsent, ledgerToBaseIntent, normalizeForMatch } from "./ledger";
+import { hasConsent, ledgerToBaseIntent, normalizeForMatch, scopeFenceTerms } from "./ledger";
 import { interpretationViolations, isSupplementCategory, lintOutbound } from "./safety";
 import type {
   AgentSession,
@@ -364,6 +365,15 @@ export function notarizeBoardItem(
     product.description,
     product.categories.map((c) => c.value).join(" "),
   ].join(" ");
+  // Care-flag scope fence (e.g. retinol under a pregnancy flag): search-time
+  // filtering only screens products found AFTER the flag, so enforce it here too
+  // — otherwise a fenced item found earlier could be re-admitted by the board
+  // top-up/breadth after a prune removed it.
+  const fences = scopeFenceTerms(session.ledger);
+  if (fences.length > 0) {
+    const fenceText = itemText.toLowerCase();
+    if (fences.some((t) => phraseInText(fenceText, t, { stemPlurals: true }))) return null;
+  }
   if (isSupplementCategory(itemText) && !hasConsent(session.ledger, "supplements")) return null;
   const insight = lintOutbound(input.insight).text;
   if (!insight || (!input.trusted && interpretationViolations(insight))) return null;

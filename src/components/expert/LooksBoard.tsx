@@ -53,8 +53,17 @@ export function LooksBoard({
       </p>
 
       <div className="grid gap-3.5 sm:grid-cols-2">
-        {resolved.map((composition, i) => (
-          <LookCard key={i} composition={composition} boardIndex={boardIndex} board={board} />
+        {resolved.map((composition) => (
+          // Keyed by a STABLE composition identity, not the array index: a
+          // board_prune can drop an earlier look and shift indices, and an
+          // index key would then feed a surviving look the pruned one's swapped
+          // member state. Identity keys keep each card's state with its look.
+          <LookCard
+            key={`${composition.name}::${composition.productIds.join(",")}`}
+            composition={composition}
+            boardIndex={boardIndex}
+            board={board}
+          />
         ))}
       </div>
     </section>

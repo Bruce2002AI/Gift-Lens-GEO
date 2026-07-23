@@ -3,7 +3,12 @@ import { ensureBoardBreadth } from "@/lib/agent/board";
 import { productIdentityKey } from "@/lib/agent/dedup";
 import { ledgerToBaseIntent, newSession } from "@/lib/agent/ledger";
 import { notarizeBoardItem, verifyPresentation } from "@/lib/agent/truth";
-import { unsearchedInterestTerms, wantsMoreVariety } from "@/lib/agent/loop";
+import {
+  sniffDirectRequest,
+  topicSearched,
+  unsearchedInterestTerms,
+  wantsMoreVariety,
+} from "@/lib/agent/loop";
 import { TraceCollector } from "@/lib/catalog/trace";
 import type { AgentSession, Presentation, VerifiedPresentation } from "@/lib/agent/types";
 import type { NormalizedProduct } from "@/lib/catalog/types";
@@ -339,6 +344,75 @@ describe("wantsMoreVariety — hear 'give me something different'", () => {
     const fresh = newSession("s2", "gift");
     fresh.transcript.push({ role: "user", content: "show me more options", turn: 1 });
     expect(wantsMoreVariety(fresh)).toBe(false);
+  });
+});
+
+describe("sniffDirectRequest — obey a literal request, don't reinterpret it", () => {
+  it("extracts the literal topic and the 'only' replace intent", () => {
+    expect(sniffDirectRequest("show me ben 10 related products only")).toEqual({
+      phrase: "ben 10",
+      only: true,
+    });
+    expect(sniffDirectRequest("just show me sarees")).toEqual({ phrase: "sarees", only: false });
+    expect(sniffDirectRequest("find me red dresses instead")).toEqual({
+      phrase: "red dresses",
+      only: true,
+    });
+    expect(sniffDirectRequest("i want harry potter merchandise")).toEqual({
+      phrase: "harry potter",
+      only: false,
+    });
+  });
+
+  it("does not fire on vague asks or pure variety/refinement", () => {
+    expect(sniffDirectRequest("show me more options")).toBeNull();
+    expect(sniffDirectRequest("find me something cheaper")).toBeNull();
+    expect(sniffDirectRequest("i want something for my dad")).toBeNull();
+    expect(sniffDirectRequest("that looks great, thanks")).toBeNull();
+    // Variety-openers route to wantsMoreVariety, not a garbage literal search.
+    expect(sniffDirectRequest("show me more gift ideas, my budget is only 2000")).toBeNull();
+    // Goal/emotion clauses are not product topics.
+    expect(sniffDirectRequest("i want to lose 10 kg")).toBeNull();
+    expect(sniffDirectRequest("i want her to feel special")).toBeNull();
+  });
+
+  it("does not treat a quantifier/idiom 'only' as a board-replace", () => {
+    // BUG 1: "only 2000" (budget) must not wipe the board. (Also routed to null
+    // above, but assert the replace-detector directly on a topical case.)
+    expect(sniffDirectRequest("show me sarees, budget is only 3000")).toEqual({
+      phrase: "sarees",
+      only: false,
+    });
+    expect(sniffDirectRequest("find me a jacket she can only wear in winter")).toMatchObject({
+      only: false,
+    });
+  });
+
+  it("keeps product qualifiers after 'for' (only strips recipients)", () => {
+    // BUG 3: "for running" must survive; "for my sister" is a recipient.
+    expect(sniffDirectRequest("show me shoes for running")).toEqual({
+      phrase: "shoes for running",
+      only: false,
+    });
+    expect(sniffDirectRequest("find me a dress for her")).toEqual({ phrase: "dress", only: false });
+  });
+
+  it("handles 'just <topic>' as a replace but 'just show me' as additive", () => {
+    expect(sniffDirectRequest("show me just sarees")).toEqual({ phrase: "sarees", only: true });
+    expect(sniffDirectRequest("just show me sarees")).toEqual({ phrase: "sarees", only: false });
+  });
+});
+
+describe("topicSearched — did we actually look for what they asked?", () => {
+  it("is false until the literal topic is queried, then true", () => {
+    const s = newSession("s1", "gift");
+    expect(topicSearched(s, "ben 10")).toBe(false);
+    s.ledger.searchQueries.push("ben 10 gift"); // attempted (even if it found nothing)
+    expect(topicSearched(s, "ben 10")).toBe(true);
+    // A different aisle does not count as searching the topic.
+    const other = newSession("s2", "gift");
+    other.ledger.searchQueries.push("minimalist desk organizer");
+    expect(topicSearched(other, "ben 10")).toBe(false);
   });
 });
 

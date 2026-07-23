@@ -27,13 +27,38 @@ function relativeTime(iso: string): string {
  * it on the shop page; hovering reveals rename/delete.
  */
 export function HistoryMenu() {
-  const { entries, refresh, rename, remove, requestRestore, requestNewSearch } =
+  const { entries, refresh, rename, remove, clear, requestRestore, requestNewSearch } =
     useHistory();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  const [clearing, setClearing] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Wipe EVERYTHING that could steer the assistant: the saved searches AND the
+   * remembered profile (facts/subjects/records + any live server session), then
+   * drop into a blank conversation. History-restore reuses a past session id, so
+   * clearing the memory alone isn't enough — both must go.
+   */
+  const clearAll = async () => {
+    const ok = window.confirm(
+      "Clear all saved searches and everything the assistant remembers about you (profiles, preferences, past chats)? This can't be undone.",
+    );
+    if (!ok) return;
+    setClearing(true);
+    try {
+      clear(); // saved searches: DB + localStorage
+      // Remembered profile + live sessions (signed-in only; a 401 for guests is
+      // harmless — they have no stored memory beyond the cleared history).
+      await fetch("/api/personalization/reset", { method: "POST" }).catch(() => {});
+    } finally {
+      setClearing(false);
+      setOpen(false);
+      requestNewSearch(); // blank conversation under a fresh id
+    }
+  };
 
   const toggleOpen = () => {
     if (!open) refresh(); // re-sync from the backing store when opening
@@ -191,6 +216,21 @@ export function HistoryMenu() {
               ))
             )}
           </ul>
+
+          <div className="border-t border-line p-2">
+            <button
+              type="button"
+              onClick={clearAll}
+              disabled={clearing}
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10 disabled:cursor-default disabled:opacity-50"
+            >
+              <Trash2 size={14} aria-hidden />
+              {clearing ? "Clearing…" : "Clear all history & memory"}
+            </button>
+            <p className="mt-1 px-1 text-center text-[11px] leading-snug text-ink-soft/70">
+              Erases saved searches and everything the assistant remembers about you.
+            </p>
+          </div>
         </div>
       )}
     </div>
